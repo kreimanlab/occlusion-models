@@ -4,6 +4,7 @@ argParser = inputParser();
 argParser.KeepUnmatched = true;
 argParser.addParameter('data', [], @(d) isa(d, 'dataset'));
 argParser.addParameter('dataSelection', [], @isnumeric);
+argParser.addParameter('images', [], @iscell);
 argParser.addParameter('trainDirectory', [], @(p) exist(p, 'dir'));
 argParser.addParameter('testDirectory', [], @(p) exist(p, 'dir'));
 argParser.addParameter('featureExtractors', {}, ...
@@ -13,8 +14,10 @@ argParser.addParameter('masked', false, @(b) b == true || b == false);
 argParser.parse(varargin{:});
 fprintf('Computing features in %s with args:\n', pwd);
 disp(argParser.Results);
-dataSelection = argParser.Results.dataSelection;
 data = argParser.Results.data;
+dataSelection = argParser.Results.dataSelection;
+images = argParser.Results.images;
+spectra = meanSpectra(images);
 trainDir = argParser.Results.trainDirectory;
 testDir = argParser.Results.testDirectory;
 featureExtractors = argParser.Results.featureExtractors;
@@ -27,9 +30,10 @@ parallelPoolObject = parpool; % init parallel computing pool
 for featureExtractorIter = 1:length(featureExtractors)
     featureExtractor = featureExtractors{featureExtractorIter};
     if ~maskImages
-        featureExtractor = ImageProvider(data, featureExtractor);
+        featureExtractor = ImageProvider(featureExtractor, data, images);
     else
-        featureExtractor = MaskedImageProvider(data, featureExtractor);
+        featureExtractor = MaskedImageProvider(featureExtractor, data, ...
+            images, spectra);
     end
     % whole
     fprintf('%s train images\n', featureExtractor.getName());

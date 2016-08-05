@@ -1,9 +1,15 @@
 classdef MaskedImageProvider < ImageProvider
     % Provides masked images for a given dataset row
     
+    properties
+        averageSpectra
+    end
+    
     methods
-        function obj = MaskedImageProvider(data, consumer)
-            obj = obj@ImageProvider(data, consumer);
+        function obj = MaskedImageProvider(consumer, data, images, ...
+                averageSpectra)
+            obj = obj@ImageProvider(consumer, data, images);
+            obj.averageSpectra = averageSpectra;
         end
         
         function name = getName(self)

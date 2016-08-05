@@ -9,12 +9,10 @@ classdef ImageProvider < FeatureExtractor
     end
     
     methods
-        function self = ImageProvider(data, consumer)
-            self.data = data;
+        function self = ImageProvider(consumer, data, images)
             self.consumer = consumer;
-            images = load('KLAB325.mat');
-            self.images = images.img_mat;
-            self.averageSpectra = images.avgSpectra;
+            self.data = data;
+            self.images = images;
         end
         
         function name = getName(self)

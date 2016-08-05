@@ -4,7 +4,7 @@ classdef RnnFeatureProvider < FeatureExtractor
     % features (i.e. not split up into multiple files).
     
     properties
-        occlusionData
+        objectForRow
         originalExtractor
         trainFeatures % unmodified whole
         testFeatures % RNN'ed occluded+whole
@@ -12,8 +12,8 @@ classdef RnnFeatureProvider < FeatureExtractor
     
     methods
         function self = RnnFeatureProvider(directory, ...
-                occlusionData, originalExtractor)
-            self.occlusionData = occlusionData;
+                objectForRow, originalExtractor)
+            self.objectForRow = objectForRow;
             self.originalExtractor = originalExtractor;
             self.trainFeatures = self.loadTrainFeatures(directory);
             self.testFeatures = ...
@@ -28,7 +28,7 @@ classdef RnnFeatureProvider < FeatureExtractor
             switch(runType)
                 case RunType.Train
                     features = self.trainFeatures(...
-                        self.occlusionData.pres(rows), :);
+                        self.objectForRow(rows), :);
                 case RunType.Test
                     features = self.testFeatures(rows, :);
             end
@@ -51,9 +51,9 @@ classdef RnnFeatureProvider < FeatureExtractor
             
             if size(features, 1) == 13325
                 features = [features(326:end, :); features(1:325, :)];
-            else
+            elseif size(features, 1) ~= size(self.objectForRow, 1)
                 warning('feature size %d does not match data size %d', ...
-                    size(features, 1), size(self.occlusionData, 1));
+                    size(features, 1), size(self.objectForRow, 1));
             end
         end
         
@@ -71,7 +71,8 @@ classdef RnnFeatureProvider < FeatureExtractor
                     return;
                 end
             end
-            error('file %s not found in directory %s', extractorName, directory);
+            error('file %s.* not found in directory %s', ...
+                extractorName, directory);
         end
     end
 end

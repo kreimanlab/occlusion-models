@@ -27,10 +27,13 @@ classdef FeatureProviderFactory < handle
                 featureProvider = self.featureProviders(name);
                 return;
             end
-            if strfind(class(originalExtractor), 'Rnn') == 1
-                dir = fileparts(self.trainDirectory);
-                assert(strcmp(dir, fileparts(self.testDirectory)));
-                featureProvider = RnnFeatureProvider(dir, ...
+            if strfind(originalExtractor.getName(), 'Rnn') == 1
+                trainParentDir = realpath([self.trainDirectory, '..']);
+                testParentDir = realpath([self.testDirectory, '..']);
+                assert(strcmp(trainParentDir, testParentDir), ...
+                    ['train and test parent directory do not match', ...
+                    '(%s != %s)'], trainParentDir, testParentDir);
+                featureProvider = RnnFeatureProvider(trainParentDir, ...
                     self.objectForRow, originalExtractor);
             else
                 constructor = curry(@FeatureProvider, ...
