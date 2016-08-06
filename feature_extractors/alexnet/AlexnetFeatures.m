@@ -2,14 +2,12 @@ classdef AlexnetFeatures < FeatureExtractor
     % Extract Alexnet features
     
     properties
-        featuresLength
         netParams
         imagesMean
     end
     
     methods
-        function obj = AlexnetFeatures(featuresLength, netParams)
-            obj.featuresLength = featuresLength;
+        function obj = AlexnetFeatures(netParams)
             dir = fileparts(mfilename('fullpath'));
             if ~exist('netParams', 'var') || isempty(netParams)
                 netParams = load([dir, '/ressources/alexnetParams.mat']);
@@ -22,10 +20,12 @@ classdef AlexnetFeatures < FeatureExtractor
         end
         
         function features = extractFeatures(self, images, ~, ~)
-            features = zeros(length(images), self.featuresLength);
-            for img=1:length(images)
+            for img = 1:length(images)
                 preparedImage = prepareGrayscaleImage(images{img}, self.imagesMean);
                 imageFeatures = self.getImageFeatures(preparedImage);
+                if img == 1
+                    features = zeros([length(images), size(imageFeatures)]);
+                end
                 features(img, :) = imageFeatures(:);
             end
             features = reshape(features, [size(features, 1), ...

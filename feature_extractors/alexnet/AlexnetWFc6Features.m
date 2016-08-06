@@ -6,8 +6,11 @@ classdef AlexnetWFc6Features < AlexnetFeatures
     end
     
     methods
-        function obj = AlexnetWFc6Features()
-            obj = obj@AlexnetFeatures(4096);
+        function obj = AlexnetWFc6Features(netParams)
+            if ~exist('netParams', 'var')
+                netParams = [];
+            end
+            obj = obj@AlexnetFeatures(netParams);
             obj.pool5FeatureExtractor = AlexnetPool5Features(obj.netParams);
         end
         
