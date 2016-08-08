@@ -28,8 +28,6 @@ classdef AlexnetFeatures < FeatureExtractor
                 end
                 features(img, :) = imageFeatures(:);
             end
-            features = reshape(features, [size(features, 1), ...
-                numel(features) / size(features, 1)]);
         end
     end
     

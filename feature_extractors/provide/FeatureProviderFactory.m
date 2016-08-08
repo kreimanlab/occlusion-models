@@ -54,7 +54,6 @@ classdef FeatureProviderFactory < handle
         
         function remove(self, originalExtractor)
             name = originalExtractor.getName();
-            name = strrep(name, 'caffenet_fc7', 'alexnet-fc7');
             if ~isKey(self.featureProviders, name)
                 error('Unknown extractor %s', name);
             end

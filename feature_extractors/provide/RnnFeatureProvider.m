@@ -58,15 +58,16 @@ classdef RnnFeatureProvider < FeatureExtractor
         end
         
         function features = loadTrainFeatures(~, directory)
-            fc7File = [directory, 'klab325_orig/caffenet_fc7_ims_1-325.txt'];
-            features = dlmread(fc7File, ' ', 0, 1);
+            fc7File = [directory, '/klab325_orig/alexnet-fc7.mat'];
+            features = load(fc7File);
+            features = features.features;
         end
         
         function [featuresFile, filetype] = ...
                 findFeaturesFile(~, directory, extractorName)
             possibleExtensions = {'mat', 'txt'};
             for filetype = possibleExtensions
-                featuresFile = [directory, extractorName, '.', filetype{:}];
+                featuresFile = [directory, '/', extractorName, '.', filetype{:}];
                 if exist(featuresFile, 'file') == 2
                     return;
                 end

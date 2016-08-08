@@ -6,9 +6,11 @@ classdef MaskedImageProvider < ImageProvider
     end
     
     methods
-        function obj = MaskedImageProvider(consumer, data, images, ...
+        function obj = MaskedImageProvider(consumer, images, ...
+                objectForRow, numsBubbles, bubbleCenters, bubbleSigmas, ...
                 averageSpectra)
-            obj = obj@ImageProvider(consumer, data, images);
+            obj = obj@ImageProvider(consumer, images, ...
+                objectForRow, numsBubbles, bubbleCenters, bubbleSigmas);
             obj.averageSpectra = averageSpectra;
         end
         

@@ -4,16 +4,19 @@ classdef AlexnetConv5Features < AlexnetFeatures
     end
     
     methods
-        function obj = AlexnetConv5Features(netParams)
+        function obj = AlexnetConv5Features(netParams, lowerExtractor)
             if ~exist('netParams', 'var')
                 netParams = [];
             end
             obj = obj@AlexnetFeatures(netParams);
-            obj.lowerExtractor = AlexnetConv4Features(obj.netParams);
+            if ~exist('lowerExtractor', 'var')
+                lowerExtractor = AlexnetRelu4Features(obj.netParams);
+            end
+            obj.lowerExtractor = lowerExtractor;
         end
         
         function name = getName(~)
-            name = 'alexnet-conv4';
+            name = 'alexnet-conv5';
         end
         
         function conv5 = getImageFeatures(self, image)
@@ -21,8 +24,7 @@ classdef AlexnetConv5Features < AlexnetFeatures
             conv5Kernels = self.netParams.weights(5).weights{1};
             conv5Bias = self.netParams.weights(5).weights{2};
             % pass image through network
-            conv4 = self.lowerExtractor.getImageFeatures(image);
-            relu4 = relu(conv4);
+            relu4 = self.lowerExtractor.getImageFeatures(image);
             conv5 = conv(relu4, conv5Kernels, conv5Bias, 3, 1, 1, 2);
         end
     end

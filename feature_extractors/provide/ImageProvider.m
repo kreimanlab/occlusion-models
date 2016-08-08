@@ -2,17 +2,24 @@ classdef ImageProvider < FeatureExtractor
     % Provides images for a given dataset row
     
     properties
-        data
         consumer
         images
+        objectForRow
+        numsBubbles
+        bubbleCenters
+        bubbleSigmas
         averageSpectra
     end
     
     methods
-        function self = ImageProvider(consumer, data, images)
+        function self = ImageProvider(consumer, images, ...
+                objectForRow, numsBubbles, bubbleCenters, bubbleSigmas)
             self.consumer = consumer;
-            self.data = data;
             self.images = images;
+            self.objectForRow = objectForRow;
+            self.numsBubbles = numsBubbles;
+            self.bubbleCenters = bubbleCenters;
+            self.bubbleSigmas = bubbleSigmas;
         end
         
         function name = getName(self)
@@ -28,9 +35,12 @@ classdef ImageProvider < FeatureExtractor
     
     methods(Access = protected)
         function images = getImages(self, dataSelection, runType)
-            images = self.images(self.data.pres(dataSelection));
+            images = self.images(self.objectForRow(dataSelection));
             if runType == RunType.Test
-                images = occlude(images, dataSelection, self.data);
+                nums = self.numsBubbles(dataSelection);
+                centers = self.bubbleCenters(dataSelection, :);
+                sigmas = self.bubbleSigmas(dataSelection, :);
+                images = occlude(images, nums, centers, sigmas);
             end
         end
     end

@@ -4,12 +4,15 @@ classdef AlexnetPool5Features < AlexnetFeatures
     end
     
     methods
-        function obj = AlexnetPool5Features(netParams)
+        function obj = AlexnetPool5Features(netParams, lowerExtractor)
             if ~exist('netParams', 'var')
                 netParams = [];
             end
             obj = obj@AlexnetFeatures(netParams);
-            obj.lowerExtractor = AlexnetConv5Features(obj.netParams);
+            if ~exist('lowerExtractor', 'var')
+                lowerExtractor = AlexnetRelu5Features(obj.netParams);
+            end
+            obj.lowerExtractor = lowerExtractor;
         end
         
         function name = getName(~)
@@ -18,8 +21,7 @@ classdef AlexnetPool5Features < AlexnetFeatures
         
         function pool5_2d = getImageFeatures(self, image)
             % pass image through network
-            conv5 = self.lowerExtractor.getImageFeatures(image);
-            relu5 = relu(conv5);
+            relu5 = self.lowerExtractor.getImageFeatures(image);
             pool5 = maxpool(relu5, 3, 2);
             pool5_2d = reshape(pool5, [9216, 1]); % flatten data
         end

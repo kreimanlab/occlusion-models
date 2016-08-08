@@ -6,12 +6,15 @@ classdef AlexnetFc8Features < AlexnetFeatures
     end
     
     methods
-        function obj = AlexnetFc8Features(netParams)
+        function obj = AlexnetFc8Features(netParams, lowerExtractor)
             if ~exist('netParams', 'var')
                 netParams = [];
             end
             obj = obj@AlexnetFeatures(netParams);
-            obj.lowerExtractor = AlexnetFc7Features(obj.netParams);
+            if ~exist('lowerExtractor', 'var')
+                lowerExtractor = AlexnetFc7Features(obj.netParams);
+            end
+            obj.lowerExtractor = lowerExtractor;
         end
         
         function name = getName(~)

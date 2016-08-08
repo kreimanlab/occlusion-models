@@ -10,12 +10,12 @@ classdef FeatureProvider < FeatureExtractor
         function self = FeatureProvider(trainDirectory, testDirectory, ...
                 objectForRow, dataSelection, originalExtractor)
             self.originalExtractor = originalExtractor;
-            [filePrefix, fileSuffix, loadFeatures] = ...
+            [filename, loadFeatures] = ...
                 self.getFileDirectives(originalExtractor);
             trainCache = self.createTrainCache(trainDirectory, ...
-                filePrefix, fileSuffix, loadFeatures, objectForRow);
+                filename, loadFeatures, objectForRow);
             testCache = self.createTestCache(testDirectory, ...
-                filePrefix, fileSuffix, loadFeatures, dataSelection);
+                filename, loadFeatures, dataSelection);
             self.caches = containers.Map(...
                 {char(RunType.Train), char(RunType.Test)}, ...
                 {trainCache, testCache});
@@ -23,7 +23,6 @@ classdef FeatureProvider < FeatureExtractor
         
         function name = getName(self)
             name = self.originalExtractor.getName();
-            name = strrep(name, 'alexnet-', 'caffenet_');
         end
         
         function features = extractFeatures(self, rows, runType, ~)
@@ -39,11 +38,11 @@ classdef FeatureProvider < FeatureExtractor
     
     methods (Access=private)
         function cache = createTrainCache(~, ...
-                dir, filePrefix, fileSuffix, ...
+                dir, filename, ...
                 loadFeatures, objectForRow)
             cache = containers.Map(...
                 'KeyType', 'double', 'ValueType', 'any');
-            filePath = [dir, filePrefix, '1-325', fileSuffix];
+            filePath = [dir, filename];
             features = loadFeatures(filePath);
             for row = 1:size(objectForRow, 1)
                 cache(row) = {features(objectForRow(row), :)};
@@ -51,20 +50,16 @@ classdef FeatureProvider < FeatureExtractor
         end
         
         function cache = createTestCache(~, ...
-                dir, filePrefix, fileSuffix, ...
+                dir, filename, ...
                 loadFeatures, dataSelection)
             cache = containers.Map(...
                 'KeyType', 'double', 'ValueType', 'any');
-            minFile = 1000 * floor(min(dataSelection) / 1000) + 1;
-            for fileLower = minFile:1000:max(dataSelection)
-                fileUpper = min(fileLower + 999, max(dataSelection));
-                filePath = [dir, filePrefix, num2str(fileLower), '-', ...
-                    num2str(fileUpper), fileSuffix];
-                features = loadFeatures(filePath);
-                for id = dataSelection(dataSelection >= fileLower ...
-                        & dataSelection <= fileUpper)
-                    cache(id) = {features(id - fileLower + 1, :)};
+            features = loadFeatures([dir, filename]);
+            for id = 1:size(features, 1)
+                if ~ismember(id, dataSelection)
+                    continue;
                 end
+                cache(id) = {features(id,:)};
             end
         end
         
@@ -73,27 +68,11 @@ classdef FeatureProvider < FeatureExtractor
             features = data.features;
         end
         
-        function [filePrefix, fileSuffix, loadFeatures] = ...
+        function [filename, loadFeatures] = ...
                 getFileDirectives(self, originalExtractor)
             name = originalExtractor.getName();
-            switch(name)
-                case 'alexnet-pool5'
-                    filePrefix = 'caffenet_pool5_ims_';
-                    fileSuffix = '.txt';
-                    loadFeatures = @(file) dlmread(file, ' ', 0, 1);
-                case 'alexnet-fc7'
-                    filePrefix = 'caffenet_fc7_ims_';
-                    fileSuffix = '.txt';
-                    loadFeatures = @(file) dlmread(file, ' ', 0, 1);
-                case 'hmax'
-                    filePrefix = 'hmax_ims_';
-                    fileSuffix = '.mat';
-                    loadFeatures = @self.loadMat;
-                otherwise
-                    filePrefix = [strrep(name, 'alexnet-', 'caffenet_') '_'];
-                    fileSuffix = '.mat';
-                    loadFeatures = @self.loadMat;
-            end
+            filename = [name, '.mat'];
+            loadFeatures = @self.loadMat;
         end
     end
 end
