@@ -11,12 +11,17 @@ classdef HopFeatures < FeatureExtractor
     end
     
     methods
-        function obj = HopFeatures(timesteps, featuresInput)
+        function obj = HopFeatures(timesteps, featuresInput, net)
             obj.timesteps = timesteps;
             obj.featuresInput = featuresInput;
-            obj.netTrained = false;
+            if ~exist('net', 'var')
+                obj.netTrained = false;
+            else
+                obj.net = net;
+                obj.netTrained = true;
+            end
         end
-    
+        
         function name = getName(self)
             name = [self.featuresInput.getName() '-hop_t' ...
                 num2str(self.timesteps)];
@@ -38,7 +43,7 @@ classdef HopFeatures < FeatureExtractor
                 features = zeros(size(previousFeatures));
                 ys = NaN([size(previousFeatures), self.timesteps]);
                 for i = 1:size(features, 1)
-                    y = self.net({1 self.timesteps}, {}, ...
+                    y = self.net(cell(1, self.timesteps), {}, ...
                         {previousFeatures(i, :)'});
                     ys(i, :, :) = cell2mat(y);
                     T = y{self.timesteps};
