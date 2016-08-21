@@ -1,8 +1,7 @@
 import argparse
+import functools
 import os
 import random
-
-import functools
 
 import h5py
 import hdf5storage
@@ -14,33 +13,29 @@ from sklearn.cross_validation import KFold, train_test_split
 
 
 class FeatureManager(object):
-    def __init__(self, features_directory, input_filename, target_filename):
+    def __init__(self, features_directory, input_filename, input_masked_filename, target_filename):
         super().__init__()
         self.features_directory = features_directory
         self.input_filename = input_filename
+        self.input_masked_filename = input_masked_filename
         self.target_filename = target_filename
 
     def get_whole_features(self):
-        filepath = os.path.join(self.features_directory, self.target_filename)
-        return self.__load_features(filepath)
+        return self.__load_features(self.target_filename)
 
     def get_occluded_features(self, data_selection=None):
-        filepath = os.path.join(self.features_directory, self.input_filename)
-        return self.__load_features(filepath, data_selection)
+        return self.__load_features(self.input_filename, data_selection)
 
-    def load_mask_features(self):
-        raise NotImplementedError()
-
-    def get_feature_reshaper(self, mask_onset):
-        if mask_onset >= 0:
-            mask_features = self.load_mask_features()
+    def get_feature_reshaper(self, mask_onset=None):
+        if mask_onset is not None:
+            mask_features = self.__load_features(self.input_masked_filename)
             return functools.partial(reshape_features_and_add_mask,
                                      mask_features=mask_features, mask_onset=mask_onset)
         else:
             return reshape_features
 
-    @staticmethod
-    def __load_features(filepath, data_selection=None):
+    def __load_features(self, filename, data_selection=None):
+        filepath = os.path.join(self.features_directory, filename)
         assert os.path.isfile(filepath), "file does not exist: %s" % os.path.realpath(filepath)
         if filepath.endswith('.txt'):
             features = np.loadtxt(filepath)
@@ -65,7 +60,33 @@ class FeatureManager(object):
 
     def save(self, features, filename):
         filepath = os.path.join(self.features_directory, filename)
-        hdf5storage.write({u'features': features}, path=filepath, matlab_compatible=True)
+        hdf5storage.write({u'features': features}, path='.', filename=filepath,
+                          matlab_compatible=True, truncate_existing=True)
+
+
+def reshape_features(features, indices, timesteps=1):
+    features = features[indices]
+    features = np.resize(features, [features.shape[0], 1, features.shape[1]])
+    return np.repeat(features, timesteps, 1)
+
+
+def reshape_features_and_add_mask(features, indices, mask_features, timesteps=2, mask_onset=1):
+    features = reshape_features(features, indices, timesteps=mask_onset)
+    mask_features = reshape_features(mask_features, indices, timesteps=timesteps - mask_onset)
+    return np.concatenate((features, mask_features), axis=1)
+
+
+def align_features(whole_features, occluded_features, pres):
+    assert len(pres) == len(occluded_features), \
+        "len(pres) = %d and len(occluded_features) = %d do not match" % (len(pres), len(occluded_features))
+    assert whole_features.shape[1:] == occluded_features.shape[1:], \
+        "whole_features.shape[1:] = %s and occluded_features.shape[1:] = %s do not match" % \
+        ((whole_features.shape[1:],), (occluded_features.shape[1:],))
+    aligned_whole = np.zeros(occluded_features.shape)
+    for i in range(len(occluded_features)):
+        corresponding_whole = int(pres[i])
+        aligned_whole[i, :] = whole_features[corresponding_whole - 1, :]
+    return aligned_whole
 
 
 class RowProvider:
@@ -155,113 +176,99 @@ class RowsWithWhole(RowProvider):
         return np.concatenate(([i + 325 for i in indices], pres))
 
 
-def create_model(feature_size):
-    model = Sequential()
-    model.add(SimpleRNN(output_dim=feature_size, input_shape=(None, feature_size),
-                        activation='relu',
-                        return_sequences=True, name='RNN'))
-    model.compile(loss="mse", optimizer="rmsprop", metrics=["accuracy"])
-    return model
+class Model:
+    def __init__(self, X, Y, row_provider, feature_reshaper):
+        assert Y.shape[1:] == X.shape[1:], \
+            'feature sizes do not match: Y %s != X %s' % \
+            (Y.shape[1:], X.shape[1:])
+        self.original_shape = X
+        self.X = self.flatten(X)
+        self.Y = self.flatten(Y)
+        self.row_provider = row_provider
+        self.feature_reshaper = feature_reshaper
+        self.model = self.__create_model()
 
+    def __create_model(self):
+        model = Sequential()
+        rnn = SimpleRNN(name='RNN',
+                        output_dim=self.X.shape[1], input_shape=(None, self.X.shape[1]),
+                        activation='relu', init='identity', inner_init='zero',
+                        return_sequences=True, consume_less="mem")
+        model.add(rnn)
+        rnn.trainable_weights.remove(rnn.W)
+        rnn.trainable_weights.remove(rnn.b)
+        rnn.non_trainable_weights += [rnn.W, rnn.b]  # input weights = identity matrix - we only care about recurrency
+        model.compile(loss="mse", optimizer="rmsprop", metrics=["accuracy"])
+        return model
 
-def train(model, X_train, Y_train, X_val, Y_val, num_epochs=10, batch_size=512):
-    assert len(X_train) == len(Y_train), \
-        "len(X_train) = %d and len(Y_train) = %d do not match" % (len(X_train), len(Y_train))
-    assert len(X_val) == len(Y_val), \
-        "len(X_val) = %d and len(Y_val) = %d do not match" % (len(X_val), len(Y_val))
-    initial_weights = model.get_weights()
-    metrics = model.fit(reshape_features(X_train), reshape_features(Y_train),
-                        validation_data=(reshape_features(X_val), reshape_features(Y_val)),
-                        batch_size=batch_size, nb_epoch=num_epochs, verbose=1)
-    validation_losses = metrics.history['val_loss']
-    best_epoch = np.array(validation_losses).argmin() + 1
-    print('retraining on whole data up to best validation epoch %d' % best_epoch)
-    model.reset_states()
-    model.set_weights(initial_weights)
-    model.fit(reshape_features(X_train), reshape_features(Y_train),
-              batch_size=batch_size, nb_epoch=best_epoch, verbose=1)
-
-
-def flatten(m):
-    return np.reshape(m, (m.shape[0], np.prod(m.shape[1:])))
-
-
-def reshape_features(features, timesteps=1):
-    features = np.resize(features, [features.shape[0], 1, features.shape[1]])
-    return np.repeat(features, timesteps, 1)
-
-
-def reshape_features_and_add_mask(features, mask_features, timesteps=2, mask_timestep_onset=1):
-    features = reshape_features(features, mask_timestep_onset)
-    mask_features = reshape_features(mask_features, timesteps - mask_timestep_onset)
-    return np.concatenate((features, mask_features), axis=1)
-
-
-def predict(model, X, feature_reshaper, timesteps=6):
-    Y = {}
-    Y[0] = X
-    predictions = model.predict(feature_reshaper(X, timesteps))
-    for t in range(1, timesteps + 1):
-        Y[t] = predictions[:, t - 1, :]
-    return Y
-
-
-def align_features(whole_features, occluded_features, pres):
-    assert len(pres) == len(occluded_features), \
-        "len(pres) = %d and len(occluded_features) = %d do not match" % (len(pres), len(occluded_features))
-    assert whole_features.shape[1:] == occluded_features.shape[1:], \
-        "whole_features.shape[1:] = %s and occluded_features.shape[1:] = %s do not match" % \
-        ((whole_features.shape[1:],), (occluded_features.shape[1:],))
-    aligned_whole = np.zeros(occluded_features.shape)
-    for i in range(len(occluded_features)):
-        corresponding_whole = int(pres[i])
-        aligned_whole[i, :] = whole_features[corresponding_whole - 1, :]
-    return aligned_whole
-
-
-def get_weights_file(kfold, suffix=''):
-    weights_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', '..', '..', 'data', 'weights')
-    if not os.path.isdir(weights_dir):
-        os.mkdir(weights_dir)
-    weights_filename = 'model_weights-kfold%d%s.hdf5' % (kfold, suffix)
-    weights_file = os.path.join(weights_dir, weights_filename)
-    return weights_file
-
-
-def cross_validate_prediction(model, X, Y, row_provider, feature_reshaper,
-                              train_epochs=10, max_timestep=6, file_suffix=''):
-    """
-    for each kfold, train on subset of features and predict the rest.
-    Ultimately predict all features by concatenating them for each kfold.
-    """
-    initial_model_weights = model.get_weights()
-    predicted_features = np.zeros((max_timestep + 1,) + X.shape)
-    num_kfold = 0
-    for train_kfolds, val_kfolds, predict_kfolds in row_provider.get_kfolds():
+    def __train(self, model, train_indices, val_indices, num_epochs=10, batch_size=512, num_timesteps=5):
+        initial_weights = model.get_weights()
+        metrics = model.fit(reshape_features(self.X, train_indices, timesteps=num_timesteps),
+                            reshape_features(self.Y, train_indices, timesteps=num_timesteps),
+                            validation_data=(reshape_features(self.X, val_indices, timesteps=num_timesteps),
+                                             reshape_features(self.Y, val_indices, timesteps=num_timesteps)),
+                            batch_size=batch_size, nb_epoch=num_epochs, verbose=1)
+        validation_losses = metrics.history['val_loss']
+        best_epoch = np.array(validation_losses).argmin() + 1
+        print('retraining on whole data up to best validation epoch %d' % best_epoch)
         model.reset_states()
-        model.set_weights(initial_model_weights)
+        model.set_weights(initial_weights)
+        model.fit(reshape_features(self.X, train_indices, timesteps=num_timesteps),
+                  reshape_features(self.Y, train_indices, timesteps=num_timesteps),
+                  batch_size=batch_size, nb_epoch=best_epoch, verbose=1)
 
-        train_indices = row_provider.get_data_indices_from_kfolds(train_kfolds)
-        validation_indices = row_provider.get_data_indices_from_kfolds(val_kfolds)
-        predict_indices = row_provider.get_data_indices_from_kfolds(predict_kfolds)
-        X_train, Y_train = X[train_indices], Y[train_indices]
-        X_val, Y_val = X[validation_indices], Y[validation_indices]
-        X_predict = X[predict_indices]
-        weights_file = get_weights_file(num_kfold, file_suffix)
-        if os.path.isfile(weights_file):
-            print('[kfold %d] using pre-trained weights %s' % (num_kfold, weights_file))
-            model.load_weights(weights_file)
-        else:
-            print('[kfold %d] training...' % num_kfold)
-            train(model, X_train, Y_train, X_val, Y_val, num_epochs=train_epochs)
-            model.save_weights(weights_file, overwrite=True)
-        print('[kfold %d] predicting...' % num_kfold)
-        predicted_Y = predict(model, X_predict, feature_reshaper, timesteps=max_timestep)
-        for timestep, prediction in predicted_Y.items():
-            predicted_features[timestep, predict_indices, :] = prediction
+    def __predict(self, indices, feature_reshaper, timesteps=6):
+        Y = {}
+        Y[0] = self.X[indices]
+        predictions = self.model.predict(feature_reshaper(self.X, indices, timesteps=timesteps))
+        for t in range(1, timesteps + 1):
+            Y[t] = predictions[:, t - 1, :]
+        return Y
 
-        num_kfold += 1
-    return predicted_features
+    @staticmethod
+    def __get_weights_file(kfold, suffix=''):
+        weights_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', '..', '..', 'data', 'weights')
+        if not os.path.isdir(weights_dir):
+            os.mkdir(weights_dir)
+        weights_filename = 'model_weights-kfold%d%s.hdf5' % (kfold, suffix)
+        weights_file = os.path.join(weights_dir, weights_filename)
+        return weights_file
+
+    def cross_validate_prediction(self, train_epochs=10, max_timestep=6, weight_file_suffix=''):
+        """
+        for each kfold, train on subset of features and predict the rest.
+        Ultimately predict all features by concatenating them for each kfold.
+        """
+        initial_model_weights = self.model.get_weights()
+        predicted_features = np.zeros((max_timestep + 1,) + self.X.shape)
+        num_kfold = 0
+        for train_kfolds, val_kfolds, predict_kfolds in self.row_provider.get_kfolds():
+            self.model.reset_states()
+            self.model.set_weights(initial_model_weights)
+
+            train_indices = self.row_provider.get_data_indices_from_kfolds(train_kfolds)
+            validation_indices = self.row_provider.get_data_indices_from_kfolds(val_kfolds)
+            predict_indices = self.row_provider.get_data_indices_from_kfolds(predict_kfolds)
+            weights_file = self.__get_weights_file(num_kfold, weight_file_suffix)
+            if os.path.isfile(weights_file):
+                print('[kfold %d] using pre-trained weights %s' % (num_kfold, weights_file))
+                self.model.load_weights(weights_file)
+            else:
+                print('[kfold %d] training...' % num_kfold)
+                self.__train(self.model, train_indices, validation_indices, num_epochs=train_epochs)
+                self.model.save_weights(weights_file, overwrite=True)
+            print('[kfold %d] predicting...' % num_kfold)
+            predicted_Y = self.__predict(predict_indices, self.feature_reshaper, timesteps=max_timestep)
+            for timestep, prediction in predicted_Y.items():
+                predicted_features[timestep, predict_indices, :] = prediction
+
+            num_kfold += 1
+        predicted_features = np.reshape(predicted_features, ((len(predicted_features),) + self.original_shape))
+        return predicted_features
+
+    @staticmethod
+    def flatten(m):
+        return np.reshape(m, (m.shape[0], np.prod(m.shape[1:])))
 
 
 def run_rnn():
@@ -275,64 +282,69 @@ def run_rnn():
     parser = argparse.ArgumentParser(description='Train and predict whole features from occluded ones')
     parser.add_argument('--features_directory', type=str,
                         help='directory containing features to load / target directory for predicted features')
-    parser.add_argument('--input_features', type=str, default='train/alexnet-WFc6.mat',
+    parser.add_argument('--input_features', type=str, default='train/alexnet-Wfc6.mat',
                         help='features to predict')
     parser.add_argument('--input_data_selection', type=int, nargs=2,
                         help='what part of the input data to use')
+    parser.add_argument('--input_features_masked', type=str, default=None,
+                        help='input features for mask onset')
     parser.add_argument('--target_features', type=str, default='test/alexnet-fc7.mat',
                         help='target output features')
     parser.add_argument('--num_epochs', type=int, default=10,
                         help='how many epochs to search for optimal weights')
     parser.add_argument('--num_timesteps', type=int, default=6,
                         help='how many timesteps to run for prediction')
-    parser.add_argument('--cross_validation', type=str, default='categories',
-                        choices=row_providers.keys(), help='across what to validate')
-    parser.add_argument('--add_whole_indices', action='store_true', default=False)
-    parser.add_argument('--mask_onset', type=int, default=-1, choices=range(1, 6),
+    parser.add_argument('--cross_validation', type=str, default='categories', choices=row_providers.keys(),
                         help='across what to validate')
+    parser.add_argument('--add_whole_indices', action='store_true', default=False)
+    parser.add_argument('--mask_onset', type=int, default=None,
+                        help='at what timestep to use the masked input features')
     args = parser.parse_args()
     print('Running RNN with args', args)
     features_directory = args.features_directory
     num_epochs = args.num_epochs
     num_timesteps = args.num_timesteps
     row_provider = row_providers[args.cross_validation]
-    file_suffix = '-%s%s' % (args.cross_validation, '-mask%d' % args.mask_onset if args.mask_onset >= 0 else '')
     if args.add_whole_indices:
         row_provider = RowsWithWhole(row_provider, pres)
 
     # load data
     print('loading features...')
-    feature_manager = FeatureManager(features_directory, args.input_features, args.target_features)
-    Y = feature_manager.get_whole_features()
-    X = feature_manager.get_occluded_features(args.input_data_selection)
-    assert Y.shape[1:] == X.shape[1:], \
+    feature_manager = FeatureManager(features_directory,
+                                     args.input_features, args.input_features_masked, args.target_features)
+    whole_features = feature_manager.get_whole_features()
+    occluded_features = feature_manager.get_occluded_features(args.input_data_selection)
+    print('loaded features with shape whole=%s, occluded=%s' % (whole_features.shape, occluded_features.shape))
+    assert whole_features.shape[1:] == occluded_features.shape[1:], \
         'feature sizes do not match: whole %s != occluded %s' % \
-        (Y.shape[1:], X.shape[1:])
-    Y = align_features(Y, X, pres)
-    original_X_shape = X.shape[1:]
-    print('X shape: %s' % (original_X_shape,))
-    # flatten
-    X, Y = flatten(X), flatten(Y)
-    # TODO: conditionally offset with whole (np.concatenate(Y, X))
+        (whole_features.shape[1:], occluded_features.shape[1:])
+    aligned_whole_features = align_features(whole_features, occluded_features, pres)
+    # TODO: conditionally offset with whole (np.concatenate(whole_features, occluded_features))
     if isinstance(row_provider, RowsAcrossImages):
-        row_provider.set_num_images(X.shape[0])
+        row_provider.set_num_images(occluded_features.shape[0])
     timestep_reshaper = feature_manager.get_feature_reshaper(args.mask_onset)
     # model
-    feature_size = X.shape[1]
-    print('creating model with collapsed feature size %d...' % feature_size)
-    model = create_model(feature_size)
+    print('creating model...')
+    model = Model(occluded_features, aligned_whole_features, row_provider, timestep_reshaper)
     # run
     print('running...')
-    predicted_Y = cross_validate_prediction(model, X, Y, row_provider, timestep_reshaper,
-                                            train_epochs=num_epochs, max_timestep=num_timesteps,
-                                            file_suffix=file_suffix)
+    predicted_Y = model.cross_validate_prediction(train_epochs=num_epochs, max_timestep=num_timesteps,
+                                                  weight_file_suffix='-%s' % args.cross_validation)
     # save
-    print('saving...')
+    file_suffix = '-%s%s' % (args.cross_validation, '-mask%d' % args.mask_onset if args.mask_onset is not None else '')
+    filename, file_extension = os.path.splitext(args.target_features)
+    save_basename = '%s%s-rnn' % (os.path.basename(filename), file_suffix)
+    save_dir_predicted = os.path.dirname(args.input_features)
+    save_dir_whole = os.path.dirname(args.target_features)
+    print('saving to %s...' % save_basename)
     for timestep in range(0, num_timesteps + 1):
         features = predicted_Y[timestep]
-        features = np.reshape(features, X.shape)
-        filename = '%s%s-rnn-t%d' % (args.target_features, file_suffix, timestep)
-        feature_manager.save(features, filename)
+        assert features.shape == occluded_features.shape, \
+            "predicted features shape %s does not match input features shape %s" \
+            % (features.shape, occluded_features.shape)
+        timestep_basename = '%s-t%d%s' % (save_basename, timestep, file_extension)
+        feature_manager.save(features, os.path.join(save_dir_predicted, timestep_basename))
+        feature_manager.save(whole_features, os.path.join(save_dir_whole, timestep_basename))
 
 
 if __name__ == '__main__':
