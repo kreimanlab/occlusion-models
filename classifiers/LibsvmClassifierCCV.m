@@ -34,16 +34,18 @@ classdef LibsvmClassifierCCV < Classifier
             self.classifier.fit(X, Y);
         end
         
+        function Y = classify(self, X)
+            Y = self.classifier.classify(X);
+        end
+    end
+    
+    methods(Access = private)
         function performance = trainAndTest(self, c, ...
                 Xtrain, Ytrain, Xtest, Ytest)
             cls = LibsvmClassifier([], self.t, c);
             cls.fit(Xtrain, Ytrain);
             pred = cls.classify(Xtest);
             performance = mean(pred == Ytest);
-        end
-        
-        function Y = classify(self, X)
-            Y = self.classifier.classify(X);
         end
     end
 end
