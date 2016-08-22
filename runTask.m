@@ -13,6 +13,8 @@ argParser.addParameter('featureExtractors', {}, ...
     && all(cellfun(@(f) isa(f, 'FeatureExtractor'), fs)));
 argParser.addParameter('classifier', @LibsvmClassifierCCV, ...
     @(c) isa(c, 'function_handle'));
+argParser.addParameter('resultsFilename', ...
+    [datestr(datetime(), 'yyyy-mm-dd_HH-MM-SS'), '.mat'], @ischar);
 
 argParser.parse(varargin{:});
 dataPath = argParser.Results.dataPath;
@@ -23,6 +25,7 @@ getLabels = argParser.Results.getLabels;
 featureExtractors = argParser.Results.featureExtractors;
 assert(~isempty(featureExtractors), 'featureExtractors must not be empty');
 classifierConstructor = argParser.Results.classifier;
+resultsFilename = argParser.Results.resultsFilename;
 
 %% Setup
 % classifiers
@@ -44,8 +47,7 @@ results = crossval(evaluateClassifiers, kfoldValues, 'kfold', kfold, ...
     'Options', statset('UseParallel', true, ...
     'Streams', crossValStream, 'UseSubstreams', true));
 delete(parallelPoolObject); % teardown pool
-resultsFile = [dataPath, '/results/' ...
-    datestr(datetime(), 'yyyy-mm-dd_HH-MM-SS') '.mat'];
+resultsFile = [dataPath, '/results/' resultsFilename];
 save(resultsFile, 'results');
 fprintf('Results stored in ''%s''\n', resultsFile);
 end

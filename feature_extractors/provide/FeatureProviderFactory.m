@@ -14,8 +14,8 @@ classdef FeatureProviderFactory < handle
         function self = FeatureProviderFactory(...
                 trainDirectory, testDirectory, ...
                 objectForRow, dataSelection)
-            self.trainDirectory = trainDirectory;
-            self.testDirectory = testDirectory;
+            self.trainDirectory = self.appendSlash(trainDirectory);
+            self.testDirectory = self.appendSlash(testDirectory);
             self.objectForRow = objectForRow;
             self.dataSelection = dataSelection;
             self.featureProviders = containers.Map();
@@ -27,7 +27,7 @@ classdef FeatureProviderFactory < handle
                 featureProvider = self.featureProviders(name);
                 return;
             end
-            if strfind(originalExtractor.getName(), 'Rnn') == 1
+            if strfind(lower(originalExtractor.getName()), lower('Rnn')) == 1
                 trainParentDir = realpath([self.trainDirectory, '..']);
                 testParentDir = realpath([self.testDirectory, '..']);
                 assert(strcmp(trainParentDir, testParentDir), ...
@@ -58,6 +58,14 @@ classdef FeatureProviderFactory < handle
                 error('Unknown extractor %s', name);
             end
             remove(self.featureProviders, {name});
+        end
+    end
+    
+    methods(Access = private)
+        function path = appendSlash(~, path)
+            if ~strendswith(path, '/')
+                path = [path, '/'];
+            end
         end
     end
 end

@@ -15,7 +15,7 @@ argParser.addParameter('omitTrain', false, @(b) b == true || b == false);
 argParser.parse(varargin{:});
 fprintf('Computing features in %s with args:\n', pwd);
 disp(argParser.Results);
-objectForRow = argParser.Result.objectForRow;
+objectForRow = argParser.Results.objectForRow;
 savesteps = argParser.Results.savesteps;
 trainDir = argParser.Results.trainDirectory;
 testDir = argParser.Results.testDirectory;
@@ -26,7 +26,8 @@ omitTrain = argParser.Results.omitTrain;
 %% whole
 if ~omitTrain
     [~, wholePresRows] = unique(objectForRow);
-    fprintf('Training on %d whole objects\n', numel(wholePresRows));
+    fprintf('%s whole objects %d\n', featureExtractor.getName(), ...
+        numel(wholePresRows));
     features = featureExtractor.extractFeatures(wholePresRows, ...
         RunType.Train, []);
     net = featureExtractor.net;
@@ -53,6 +54,8 @@ features = vertcat(features{:});
 % save
 parfor timeIter = 1:numel(savesteps)
     timestep = savesteps(timeIter);
+    fprintf('%s save occluded t=%d\n', featureExtractor.getName(), ...
+        timestep);
     saveFeatures(features(:, :, timeIter), ...
         testDir, featureExtractor, timestep);
 end
