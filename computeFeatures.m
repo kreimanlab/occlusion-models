@@ -7,9 +7,7 @@ argParser.addParameter('dataSelection', [], @isnumeric);
 argParser.addParameter('splitSize', 2000, @(x) isnumeric(x) && x > 0);
 argParser.addParameter('images', [], @(i) iscell(i) && ~isempty(i));
 argParser.addParameter('objectForRow', [], @(i) isnumeric(i) && ~isempty(i));
-argParser.addParameter('numBubbles', [], @(i) isnumeric(i) && ~isempty(i));
-argParser.addParameter('bubbleCenters', [], @(i) isnumeric(i) && ~isempty(i));
-argParser.addParameter('bubbleSigmas', [], @(i) isnumeric(i) && ~isempty(i));
+argParser.addParameter('adjustTestImages', [], @(f) isa(f, 'function_handle'));
 argParser.addParameter('trainDirectory', [], @(p) exist(p, 'dir'));
 argParser.addParameter('testDirectory', [], @(p) exist(p, 'dir'));
 argParser.addParameter('featureExtractors', {}, ...
@@ -24,9 +22,7 @@ dataSelection = argParser.Results.dataSelection;
 splitSize = argParser.Results.splitSize;
 images = argParser.Results.images;
 objectForRow = argParser.Results.objectForRow;
-numsBubbles = argParser.Results.numBubbles;
-bubbleCenters = argParser.Results.bubbleCenters;
-bubbleSigmas = argParser.Results.bubbleSigmas;
+adjustTestImages = argParser.Results.adjustTestImages;
 trainDir = argParser.Results.trainDirectory;
 testDir = argParser.Results.testDirectory;
 featureExtractors = argParser.Results.featureExtractors;
@@ -42,15 +38,14 @@ numOccluded = size(data, 1);
 numOccludedSplits = ceil(numOccluded / splitSize);
 for featureExtractorIter = 1:length(featureExtractors)
     featureExtractor = featureExtractors{featureExtractorIter};
-    if ~maskImages
-        featureExtractor = ImageProvider(featureExtractor, images, ...
-            objectForRow, numsBubbles, bubbleCenters, bubbleSigmas);
-    else
-        spectra = meanSpectra(images);
-        featureExtractor = MaskedImageProvider(featureExtractor, images, ...
-            objectForRow, numsBubbles, bubbleCenters, bubbleSigmas, ...
-            spectra);
+    if maskImages
+        averageSpectra = meanSpectra(...
+            adjustTestImages(images, 1:numel(images)));
+        adjustTestImages = @(images, ~) createPhaseScramble(...
+                    size(images{1}), averageSpectra);
     end
+    featureExtractor = ImageProvider(featureExtractor, images, ...
+        objectForRow, adjustTestImages);
     
     % have to artificially offset size to comply with parfor
     wholeFeatures = cell(numWholeSplits + numOccludedSplits, 1);
@@ -80,10 +75,15 @@ for featureExtractorIter = 1:length(featureExtractors)
         end
     end
     % save
+    fprintf('%s merge & save whole features...\n', ...
+        featureExtractor.getName());
     features = cell2mat(wholeFeatures);
     saveFeatures(features, trainDir, featureExtractor);
+    fprintf('%s merge & save occluded features...\n', ...
+        featureExtractor.getName());
     features = cell2mat(occludedFeatures);
     saveFeatures(features, testDir, featureExtractor);
+    fprintf('%s done.\n', featureExtractor.getName());
 end
 delete(parallelPoolObject); % teardown pool
 end
