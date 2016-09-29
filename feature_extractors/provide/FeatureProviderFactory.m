@@ -8,17 +8,31 @@ classdef FeatureProviderFactory < handle
         dataSelection
         
         featureProviders
+        
+        images
+        adjustTestImages
     end
     
     methods
         function self = FeatureProviderFactory(...
                 trainDirectory, testDirectory, ...
-                objectForRow, dataSelection)
+                objectForRow, dataSelection, ...
+                images, adjustTestImages)
             self.trainDirectory = self.appendSlash(trainDirectory);
             self.testDirectory = self.appendSlash(testDirectory);
             self.objectForRow = objectForRow;
             self.dataSelection = dataSelection;
             self.featureProviders = containers.Map();
+            if ~exist('images', 'var')
+                warning('no images provided for FeatureProviderFactory constructor');
+                images = [];
+            end
+            self.images = images;
+            if ~exist('adjustTestImages', 'var')
+                warning('no adjustTestImages provided for FeatureProviderFactory constructor');
+                adjustTestImages = [];
+            end
+            self.adjustTestImages = adjustTestImages;
         end
         
         function featureProvider = get(self, originalExtractor)
@@ -44,6 +58,10 @@ classdef FeatureProviderFactory < handle
                         originalExtractor.featuresInput);
                     originalExtractor.featuresInput = inputProvider;
                     featureProvider = originalExtractor;
+                elseif isa(originalExtractor, 'PixelFeatures')
+                    featureProvider = ImageProvider(originalExtractor, ...
+                        self.images, self.objectForRow, ...
+                        self.adjustTestImages);
                 else
                     featureProvider = constructor(...
                         originalExtractor);

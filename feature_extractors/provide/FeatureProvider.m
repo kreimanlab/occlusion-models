@@ -44,7 +44,7 @@ classdef FeatureProvider < FeatureExtractor
                 'KeyType', 'double', 'ValueType', 'any');
             filePath = [dir, filename];
             features = loadFeatures(filePath);
-            for row = 1:size(objectForRow, 1)
+            for row = 1:numel(objectForRow)
                 cache(row) = {features(objectForRow(row), :)};
             end
         end
