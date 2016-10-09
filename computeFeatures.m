@@ -57,6 +57,14 @@ for featureExtractorIter = 1:length(featureExtractors)
             wholeIter = dataIter - numOccludedSplits;
             dataStart = (wholeIter - 1) * splitSize + 1;
             dataEnd = min(dataStart + splitSize - 1, numWhole);
+            saveFilename = getSaveFilename(featureExtractor, ...
+                dataStart:dataEnd, numel(objectForRow));
+            if exist(saveFilename, 'file') == 2
+                fprintf('%s whole images skip %d/%d (file %s exists)\n', ...
+                    featureExtractor.getName(), wholeIter, ...
+                    numWholeSplits, saveFilename);
+                continue;
+            end
             rows = intersect(dataStart:dataEnd, dataSelection);
             if isempty(rows)
                 fprintf('%s whole images skip %d/%d (empty)\n', ...
@@ -68,13 +76,19 @@ for featureExtractorIter = 1:length(featureExtractors)
                 dataIter, numWholeSplits, min(rows), max(rows));
             features = featureExtractor.extractFeatures(...
                 uniquePresRows(rows), RunType.Train, []);
-            saveFilename = getSaveFilename(featureExtractor, ...
-                dataStart:dataEnd, numel(objectForRow));
             saveFeatures(features, trainDir, saveFilename);
         elseif ~omitOccluded
             % occluded
             dataStart = (dataIter - 1) * splitSize + 1;
             dataEnd = min(dataStart + splitSize - 1, numOccluded);
+            saveFilename = getSaveFilename(featureExtractor, ...
+                dataStart:dataEnd, numel(objectForRow));
+            if exist(saveFilename, 'file') == 2
+                fprintf('%s whole images skip %d/%d (file %s exists)\n', ...
+                    featureExtractor.getName(), wholeIter, ...
+                    numWholeSplits, saveFilename);
+                continue;
+            end
             rows = intersect(dataStart:dataEnd, dataSelection);
             if isempty(rows)
                 fprintf('%s occluded images skip %d/%d (empty)\n', ...
@@ -86,8 +100,6 @@ for featureExtractorIter = 1:length(featureExtractors)
                 dataIter, numOccludedSplits, min(rows), max(rows));
             features = featureExtractor.extractFeatures(...
                 rows, RunType.Test, []);
-            saveFilename = getSaveFilename(featureExtractor, ...
-                dataStart:dataEnd, numel(objectForRow));
             saveFeatures(features, testDir, saveFilename);
         end
     end

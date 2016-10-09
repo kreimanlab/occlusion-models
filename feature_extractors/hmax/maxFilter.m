@@ -1,35 +1,45 @@
-function maxValues = maxFilter(img,poolSize)
-% maxValues = maxFilter(img,poolSize)
+function I = maxfilter(I,radius)
+%function I = maxfilter(I,radius)
 %
-% given an image and pooling range, returns a matrix of the image's maximum
-% values in each neighborhood defined by the pooling range
+%Performs morphological dilation on a multilayer image.
 %
-% args:
-%
-%     img: a 2-dimensional matrix, the image to be filtered
-%
-%     poolSize: a scalar, P, such that each maximum will be taken over a PxP
-%     area of pixels
-%
-% returns:
-%
-%     maxValues: a matrix whose size depends on poolSize, contains the maximum
-%     values found in poolSize x poolSize areas across img.
-
-    [nRows nCols] = size(img);
-    halfpool = poolSize/2;
-    rowIndices = 1:halfpool:nRows;
-    colIndices = 1:halfpool:nCols;
-    maxValues = zeros(size(rowIndices,2),size(colIndices,2));
-
-    rCount = 1;
-    for r = rowIndices
-        cCount = 1;
-        for c = colIndices
-            maxValues(rCount,cCount) = max(max(img(r:min(r+poolSize-1,nRows),...
-                                                   c:min(c+poolSize-1,nCols))));
-            cCount = cCount+1;
-        end
-        rCount = rCount+1;
-    end
+%I is the input image
+%radius is the additional radius of the window, i.e., 5 means 11 x 11
+%if a four value vector is specified for radius, then any rectangular support may be used for max.
+%in the order left top right bottom.
+switch length(radius)
+case 1,
+  I = padimage(I,radius);
+  [n,m,thirdd] = size(I);
+  B = I;
+  for i = radius+1:m-radius,
+    B(:,i,:) = max(I(:,i-radius:i+radius,:),[],2);
+  end
+  for i = radius+1:n-radius,
+    I(i,:,:) = max(B(i-radius:i+radius,:,:),[],1);
+  end
+  I = unpadimage(I,radius);
+case 4,
+  [n,m,thirdd] = size(I);
+  B = I;
+  for i=1:radius(1)
+    B(:,i,:) = max(I(:,max(1,i-radius(1)):min(end,i+radius(3)),:),[],2);
+  end
+  for i = radius(1)+1:m-radius(3),
+    B(:,i,:) = max(I(:,i-radius(1):i+radius(3),:),[],2);
+  end
+  for i=m-radius(3)+1:m
+    B(:,i,:) = max(I(:,i-radius(1):min(end,i+radius(3)),:),[],2);
+  end
+  for i = 1:radius(2),
+    I(i,:,:) = max(B(max(1,i-radius(2)):i+radius(4),:,:),[],1);
+  end
+  for i = radius(2)+1:n-radius(4),
+    I(i,:,:) = max(B(max(1,i-radius(2)):min(end,i+radius(4)),:,:),[],1);
+  end
+  for i = n-radius(4)+1:n,
+    I(i,:,:) = max(B(i-radius(2):min(end,i+radius(4)),:,:),[],1);
+  end
+otherwise,
+  error('maxfilter: poorly defined radius\n');
 end

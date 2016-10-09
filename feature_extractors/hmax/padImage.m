@@ -1,32 +1,22 @@
-function imgOut = padImage(imgIn,pad,method)
-% imgOut = padImage(imgIn,pad,method)
-% 
-% Given an image, padding amount, and padding method, returns a padded image.
-% Think of it as padarray operating on only the first 2 dimensions of a 3
-% dimensional image.
+function o = padimage(i,amnt,method)
+%function o = padimage(i,amnt,method)
 %
-% args:
+%padarray which operates on only the first 2 dimensions of a 3 dimensional
+%image. (of arbitrary number of layers);
 %
-%     imgIn: 2- or 3-dimensional matrix, the image to be padded
+%amnt is a scalar value indicating how many pixels to buffer each side
+%with.
 %
-%     pad: scalar, indicates how many pixels pad each side
+%String values for pad method
+%        'circular'    Pads with circular repetion of elements.
+%        'replicate'   Repeats border elements of A.
+%        'symmetric'   Pads array with mirror reflections of itself. 
 %
-%     method: string or scalar, indicates the padding method. Possible values:
-%        'circular'    Pad with circular repetion of elements.
-%        'replicate'   Repeat border elements of A.
-%        'symmetric'   Pad array with mirror reflections of itself. 
-%        XYZ           scalars, ex. 0, 14, 255
-%
-% returns:
-%
-%     imgOut: a 2- or 3-dimensional matrix, the unpadded image
-%
-% see also unpadImage.m
-
-    if (nargin < 3) method = 'replicate'; end;
-
-    imgOut = zeros(size(imgIn,1)+2*pad, size(imgIn,2)+2*pad, size(imgIn,3));
-    for iLayer = 1:size(imgIn,3)
-        imgOut(:,:,iLayer) = padarray(imgIn(:,:,iLayer),[pad,pad],method,'both');
-    end
+%method may also be a constant value, like 0.0
+if(nargin < 3)
+   method = 'replicate';
+end
+o = zeros(size(i,1) + 2 * amnt, size(i,2) + 2* amnt, size(i,3));
+for n = 1:size(i,3)
+  o(:,:,n) = padarray(i(:,:,n),[amnt,amnt],method,'both');
 end
