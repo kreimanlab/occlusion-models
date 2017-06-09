@@ -10,7 +10,7 @@ classdef AlexnetFc7Features < AlexnetFeatures
             end
             obj = obj@AlexnetFeatures(netParams);
             if ~exist('lowerExtractor', 'var')
-                lowerExtractor = AlexnetRelu6Features(obj.netParams);
+                lowerExtractor = AlexnetPool5Features(obj.netParams);
             end
             obj.lowerExtractor = lowerExtractor;
         end
