@@ -27,8 +27,7 @@ classdef AlexnetFc8Features < AlexnetFeatures
             fc8Bias = self.netParams.weights(8).weights{2};
 
             %% pass image through network
-            fc7 = self.lowerExtractor.getImageFeatures(image);
-            relu7 = relu(fc7);
+            relu7 = self.lowerExtractor.getImageFeatures(image);
             dropout7 = dropout(relu7);
             fc8 = fc(dropout7, fc8Weights, fc8Bias);
         end
