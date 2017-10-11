@@ -11,6 +11,6 @@ setup(name='occlusion-models',
           'keras',
           'numpy',
           'scipy',
-          'sklearn',
+          'scikit-learn',
           'hdf5storage'
       ])

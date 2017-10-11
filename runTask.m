@@ -40,13 +40,13 @@ rng(1, 'twister'); % seed, use pseudo random generator for reproducibility
 
 %% Run
 evaluateClassifiers = curry(@evaluate, classifiers, getRows, getLabels);
-parallelPoolObject = parpool; % init parallel computing pool
-crossValStream = RandStream('mlfg6331_64');
-reset(crossValStream);
-results = crossval(evaluateClassifiers, kfoldValues, 'kfold', kfold, ...
-    'Options', statset('UseParallel', true, ...
-    'Streams', crossValStream, 'UseSubstreams', true));
-delete(parallelPoolObject); % teardown pool
+% parallelPoolObject = parpool; % init parallel computing pool
+% crossValStream = RandStream('mlfg6331_64');
+% reset(crossValStream);
+results = crossval(evaluateClassifiers, kfoldValues, 'kfold', kfold);%, ...
+%     'Options', statset('UseParallel', true, ...
+%     'Streams', crossValStream, 'UseSubstreams', true));
+% delete(parallelPoolObject); % teardown pool
 resultsFile = [dataPath, '/results/' resultsFilename];
 save(resultsFile, 'results');
 fprintf('Results stored in ''%s''\n', resultsFile);

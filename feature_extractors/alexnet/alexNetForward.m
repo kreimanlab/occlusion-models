@@ -4,7 +4,7 @@ function alexNetForward()
 %% Preparation
 % Load network parameters.
 dir = fileparts(mfilename('fullpath'));
-netParams = load([dir '/ressources/randomParams.mat']); % obtained from https://drive.google.com/file/d/0B-VdpVMYRh-pQWV1RWt5NHNQNnc/view
+netParams = load([dir '/ressources/netParams.mat']); % obtained from https://drive.google.com/file/d/0B-VdpVMYRh-pQWV1RWt5NHNQNnc/view
 conv1Kernels=netParams.weights(1).weights{1};
 conv1Bias=netParams.weights(1).weights{2};
 conv2Kernels=netParams.weights(2).weights{1};

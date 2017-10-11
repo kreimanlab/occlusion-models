@@ -31,11 +31,5 @@ classdef CombineFeatures < FeatureExtractor
                 end
             end
         end
-        
-        function net = trainNet(self, features)
-            T = features';
-            net = newhop(T);
-            self.netTrained = true;
-        end
     end
 end

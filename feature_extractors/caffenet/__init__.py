@@ -15,40 +15,81 @@ from keras.layers import MaxPooling2D
 from keras.layers import ZeroPadding2D
 from keras.models import Model
 
+from model.feature_extractors.rnn.RnnFeatures import PlainModel
 
-# from https://github.com/yjn870/keras-caffenet
 
-def CaffeNet(weights=None, input_shape=(3, 227, 227), classes=1000):
-    inputs = Input(shape=input_shape)
-    dim_ordering = 'th'
-    x = Conv2D(96, (11, 11), strides=(4, 4), activation='relu', name='conv1', dim_ordering=dim_ordering)(inputs)
-    x = MaxPooling2D((3, 3), strides=(2, 2), name='pool1', dim_ordering=dim_ordering)(x)
-    x = LRN2D(name='norm1')(x)
-    x = ZeroPadding2D((2, 2), dim_ordering=dim_ordering)(x)
-    x = Conv2D(256, (5, 5), activation='relu', name='conv2', dim_ordering=dim_ordering)(x)
-    x = MaxPooling2D((3, 3), strides=(2, 2), name='pool2', dim_ordering=dim_ordering)(x)
-    x = LRN2D(name='norm2')(x)
-    x = ZeroPadding2D((1, 1), dim_ordering=dim_ordering)(x)
-    x = Conv2D(384, (3, 3), activation='relu', name='conv3', dim_ordering=dim_ordering)(x)
-    x = ZeroPadding2D((1, 1), dim_ordering=dim_ordering)(x)
-    x = Conv2D(384, (3, 3), activation='relu', name='conv4', dim_ordering=dim_ordering)(x)
-    x = ZeroPadding2D((1, 1), dim_ordering=dim_ordering)(x)
-    x = Conv2D(256, (3, 3), activation='relu', name='conv5', dim_ordering=dim_ordering)(x)
-    x = MaxPooling2D((3, 3), strides=(2, 2), name='pool5', dim_ordering=dim_ordering)(x)
+class CaffeNet(PlainModel):
+    """
+    adapted from https://github.com/yjn870/keras-caffenet
+    """
 
-    x = Flatten(name='flatten')(x)
-    x = Dense(4096, activation='relu', name='fc6')(x)
-    x = Dropout(0.5, name='drop6')(x)
-    x = Dense(4096, activation='relu', name='fc7')(x)
-    x = Dropout(0.5, name='drop7')(x)
-    x = Dense(classes, name='fc8')(x)
-    x = Activation('softmax', name='loss')(x)
+    def __init__(self, feature_manager=None):
+        super(CaffeNet, self).__init__()
 
-    model = Model(inputs, x, name='caffenet')
+    def __call__(self, num_images=1, input_shape=(3, 227, 227), classes=1000, # TODO 5,
+                 weights=os.path.join(os.path.dirname(__file__), 'caffenet_weights_th.h5'),
+                 fix_below7=False):
+        inputs = Input(shape=input_shape)
+        dim_ordering = 'th'
+        x = Conv2D(96, (11, 11), strides=(4, 4), activation='relu', name='conv1', dim_ordering=dim_ordering,
+                   trainable=not fix_below7)(inputs)
+        x = MaxPooling2D((3, 3), strides=(2, 2), name='pool1', dim_ordering=dim_ordering)(x)
+        x = LRN2D(name='norm1')(x)
+        x = ZeroPadding2D((2, 2), dim_ordering=dim_ordering)(x)
+        x = Conv2D(256, (5, 5), activation='relu', name='conv2', trainable=not fix_below7, dim_ordering=dim_ordering)(x)
+        x = MaxPooling2D((3, 3), strides=(2, 2), name='pool2', dim_ordering=dim_ordering)(x)
+        x = LRN2D(name='norm2')(x)
+        x = ZeroPadding2D((1, 1), dim_ordering=dim_ordering)(x)
+        x = Conv2D(384, (3, 3), activation='relu', name='conv3', trainable=not fix_below7, dim_ordering=dim_ordering)(x)
+        x = ZeroPadding2D((1, 1), dim_ordering=dim_ordering)(x)
+        x = Conv2D(384, (3, 3), activation='relu', name='conv4', trainable=not fix_below7, dim_ordering=dim_ordering)(x)
+        x = ZeroPadding2D((1, 1), dim_ordering=dim_ordering)(x)
+        x = Conv2D(256, (3, 3), activation='relu', name='conv5', trainable=not fix_below7, dim_ordering=dim_ordering)(x)
+        x = MaxPooling2D((3, 3), strides=(2, 2), name='pool5', dim_ordering=dim_ordering)(x)
 
-    model.load_weights(weights)
+        x = Flatten(name='flatten')(x)
+        x = Dense(4096, activation='relu', trainable=not fix_below7, name='fc6')(x)
+        x = Dropout(0.5, name='drop6')(x)
+        x = Dense(4096, activation='relu', name='fc7')(x)
+        x = Dropout(0.5, name='drop7')(x)
+        x = Dense(classes, name='fc8')(x)  # avoid overriding fc8 of size 5 with weights of size 1000
+        # x = Dense(classes, name='fc8_modified')(x)  # avoid overriding fc8 of size 5 with weights of size 1000
+        x = Activation('softmax', name='loss')(x)
 
-    return model
+        model = Model(inputs, x, name='caffenet')
+        model.load_weights(weights, by_name=True)
+
+        # change during prediction
+        original_predict = model.predict
+
+        def predict_fc7(*args, **kwargs):
+            # remove "class" layers
+            fc8 = [l for l in model.layers if l.name.startswith('fc8')]
+            softmax = [l for l in model.layers if l.name == 'loss']
+            removed_layers = fc8 + softmax
+
+            for layer in removed_layers:
+                # layer.outbound_nodes = []  # TODO: not sure if needed
+                model.layers.remove(layer)
+
+            model.outputs = [model.layers[-1].output]
+            model.built = False
+            # model.summary()
+
+            # predict
+            result = original_predict(*args, **kwargs)
+
+            # re-add layers
+            for layer in removed_layers:
+                model.layers.append(layer)
+            model.outputs = [model.layers[-1].output]
+            model.built = False
+
+            return result
+
+        # model.predict = predict_fc7
+
+        return model
 
 
 class LRN2D(Layer):
@@ -124,7 +165,8 @@ if __name__ == '__main__':
                               '../../../data/imagenet/ILSVRC2012_val_00019877.JPEG')
     im = load_image(image_path)
 
-    model = CaffeNet(weights='caffenet_weights_th.h5')
+    model = CaffeNet()(weights='caffenet_weights_th.h5')
+    model.summary()
 
     preds = model.predict(im)
     print(decode_predictions(preds)[0])

@@ -5,7 +5,7 @@ trainLabels = getLabels(trainRows);
 testRows = getRows(test, RunType.Test);
 testLabels = getLabels(testRows);
 results = cell(numel(classifiers), 1);
-parfor iClassifier = 1:numel(classifiers)
+for iClassifier = 1:numel(classifiers)
     classifier = classifiers{iClassifier};
     fprintf('Training %s...\n', classifier.getName());
     classifier.train(trainRows, trainLabels);
