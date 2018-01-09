@@ -28,8 +28,8 @@ import numpy as np
 class AlexNet(object):
     """Implementation of the AlexNet."""
 
-    def __init__(self, x, keep_prob, num_classes, skip_layer,
-                 weights_path='DEFAULT'):
+    def __init__(self, x, keep_prob, skip_layer, num_classes=1000,
+                 weights_path='DEFAULT', output_layer='fc8'):
         """Create the graph of the AlexNet model.
 
         Args:
@@ -53,20 +53,20 @@ class AlexNet(object):
             self.WEIGHTS_PATH = weights_path
 
         # Call the create function to build the computational graph of AlexNet
-        self.create()
+        self.create(output_layer=output_layer)
 
-    def create(self):
+    def create(self, output_layer='fc8'):
         """Create the network graph."""
         # 1st Layer: Conv (w ReLu) -> Lrn -> Pool
         conv1 = conv(self.X, 11, 11, 96, 4, 4, padding='VALID', name='conv1')
         norm1 = lrn(conv1, 2, 1e-05, 0.75, name='norm1')
         pool1 = max_pool(norm1, 3, 3, 2, 2, padding='VALID', name='pool1')
-        
+
         # 2nd Layer: Conv (w ReLu)  -> Lrn -> Pool with 2 groups
         conv2 = conv(pool1, 5, 5, 256, 1, 1, groups=2, name='conv2')
         norm2 = lrn(conv2, 2, 1e-05, 0.75, name='norm2')
         pool2 = max_pool(norm2, 3, 3, 2, 2, padding='VALID', name='pool2')
-        
+
         # 3rd Layer: Conv (w ReLu)
         conv3 = conv(pool2, 3, 3, 384, 1, 1, name='conv3')
 
@@ -78,8 +78,8 @@ class AlexNet(object):
         pool5 = max_pool(conv5, 3, 3, 2, 2, padding='VALID', name='pool5')
 
         # 6th Layer: Flatten -> FC (w ReLu) -> Dropout
-        flattened = tf.reshape(pool5, [-1, 6*6*256])
-        fc6 = fc(flattened, 6*6*256, 4096, name='fc6')
+        flattened = tf.reshape(pool5, [-1, 6 * 6 * 256])
+        fc6 = fc(flattened, 6 * 6 * 256, 4096, name='fc6')
         dropout6 = dropout(fc6, self.KEEP_PROB)
 
         # 7th Layer: FC (w ReLu) -> Dropout
@@ -87,7 +87,15 @@ class AlexNet(object):
         dropout7 = dropout(fc7, self.KEEP_PROB)
 
         # 8th Layer: FC and return unscaled activations
-        self.fc8 = fc(dropout7, 4096, self.NUM_CLASSES, relu=False, name='fc8')
+        fc8 = fc(dropout7, 4096, self.NUM_CLASSES, relu=False, name='fc8')
+
+        # set output
+        if output_layer == 'fc8':
+            self.output = fc8
+        elif output_layer == 'fc7':
+            self.output = fc7
+        else:
+            raise NotImplementedError()
 
     def load_initial_weights(self, session):
         """Load weights from file into network.
@@ -140,7 +148,7 @@ def conv(x, filter_height, filter_width, num_filters, stride_y, stride_x, name,
         # Create tf variables for the weights and biases of the conv layer
         weights = tf.get_variable('weights', shape=[filter_height,
                                                     filter_width,
-                                                    input_channels/groups,
+                                                    input_channels / groups,
                                                     num_filters])
         biases = tf.get_variable('biases', shape=[num_filters])
 

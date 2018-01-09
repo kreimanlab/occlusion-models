@@ -17,8 +17,8 @@ import os
 import numpy as np
 import tensorflow as tf
 
-from alexnet import AlexNet
-from datagenerator import ImageDataGenerator
+from model.feature_extractors.alexnet.finetune_alexnet_with_tensorflow.alexnet import AlexNet
+from model.feature_extractors.alexnet.finetune_alexnet_with_tensorflow.datagenerator import ImageDataGenerator
 from datetime import datetime
 from tensorflow.contrib.data import Iterator
 
@@ -27,18 +27,18 @@ Configuration Part.
 """
 
 # Path to the textfiles for the trainings and validation set
-train_file = '/path/to/train.txt'
-val_file = '/path/to/val.txt'
+train_file = os.path.join(os.path.dirname(__file__), 'images', 'train.txt')
+val_file = os.path.join(os.path.dirname(__file__), 'images', 'val.txt')
 
 # Learning params
 learning_rate = 0.01
-num_epochs = 10
+num_epochs = 25
 batch_size = 128
 
 # Network params
 dropout_rate = 0.5
-num_classes = 2
-train_layers = ['fc8', 'fc7', 'fc6']
+num_classes = 4096
+train_layers = []  # train everything, not just ['fc8', 'fc7', 'fc6']
 
 # How often we want to write the tf.summary data to disk
 display_step = 20
@@ -53,19 +53,17 @@ Main Part of the finetuning Script.
 
 # Create parent path if it doesn't exist
 if not os.path.isdir(checkpoint_path):
-    os.mkdir(checkpoint_path)
+    os.makedirs(checkpoint_path, exist_ok=True)
 
 # Place data loading and preprocessing on the cpu
 with tf.device('/cpu:0'):
     tr_data = ImageDataGenerator(train_file,
                                  mode='training',
                                  batch_size=batch_size,
-                                 num_classes=num_classes,
                                  shuffle=True)
     val_data = ImageDataGenerator(val_file,
                                   mode='inference',
                                   batch_size=batch_size,
-                                  num_classes=num_classes,
                                   shuffle=False)
 
     # create an reinitializable iterator given the dataset structure
@@ -83,24 +81,24 @@ y = tf.placeholder(tf.float32, [batch_size, num_classes])
 keep_prob = tf.placeholder(tf.float32)
 
 # Initialize model
-model = AlexNet(x, keep_prob, num_classes, train_layers)
+model = AlexNet(x, keep_prob, train_layers, output_layer='fc7')
 
 # Link variable to model output
-score = model.fc8
+predictions = model.output
 
 # List of trainable variables of the layers we want to train
-var_list = [v for v in tf.trainable_variables() if v.name.split('/')[0] in train_layers]
+var_list = [v for v in tf.trainable_variables() if not train_layers or v.name.split('/')[0] in train_layers]
 
 # Op for calculating the loss
-with tf.name_scope("cross_ent"):
-    loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=score,
-                                                                  labels=y))
+with tf.name_scope("loss"):
+    loss = tf.losses.mean_squared_error(predictions=predictions, labels=y)
 
 # Train op
 with tf.name_scope("train"):
     # Get gradients of all trainable variables
     gradients = tf.gradients(loss, var_list)
     gradients = list(zip(gradients, var_list))
+    gradients = [(g, v) for g, v in gradients if g is not None]
 
     # Create optimizer and apply gradient descent to the trainable variables
     optimizer = tf.train.GradientDescentOptimizer(learning_rate)
@@ -115,12 +113,11 @@ for var in var_list:
     tf.summary.histogram(var.name, var)
 
 # Add the loss to summary
-tf.summary.scalar('cross_entropy', loss)
-
+tf.summary.scalar('loss', loss)
 
 # Evaluation op: Accuracy of the model
 with tf.name_scope("accuracy"):
-    correct_pred = tf.equal(tf.argmax(score, 1), tf.argmax(y, 1))
+    correct_pred = tf.equal(tf.argmax(predictions, 1), tf.argmax(y, 1))
     accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 
 # Add the accuracy to the summary
@@ -136,12 +133,11 @@ writer = tf.summary.FileWriter(filewriter_path)
 saver = tf.train.Saver()
 
 # Get the number of training/validation steps per epoch
-train_batches_per_epoch = int(np.floor(tr_data.data_size/batch_size))
-val_batches_per_epoch = int(np.floor(val_data.data_size / batch_size))
+train_batches_per_epoch = max(int(np.floor(tr_data.data_size / batch_size)), 1)
+val_batches_per_epoch = max(int(np.floor(val_data.data_size / batch_size)), 1)
 
 # Start Tensorflow session
 with tf.Session() as sess:
-
     # Initialize all variables
     sess.run(tf.global_variables_initializer())
 
@@ -158,7 +154,7 @@ with tf.Session() as sess:
     # Loop over number of epochs
     for epoch in range(num_epochs):
 
-        print("{} Epoch number: {}".format(datetime.now(), epoch+1))
+        print("{} Epoch number: {}".format(datetime.now(), epoch + 1))
 
         # Initialize iterator with the training dataset
         sess.run(training_init_op)
@@ -179,29 +175,28 @@ with tf.Session() as sess:
                                                         y: label_batch,
                                                         keep_prob: 1.})
 
-                writer.add_summary(s, epoch*train_batches_per_epoch + step)
+                writer.add_summary(s, epoch * train_batches_per_epoch + step)
 
         # Validate the model on the entire validation set
         print("{} Start validation".format(datetime.now()))
         sess.run(validation_init_op)
-        test_acc = 0.
-        test_count = 0
+        val_acc = 0.
+        val_count = 0
         for _ in range(val_batches_per_epoch):
-
             img_batch, label_batch = sess.run(next_batch)
             acc = sess.run(accuracy, feed_dict={x: img_batch,
                                                 y: label_batch,
                                                 keep_prob: 1.})
-            test_acc += acc
-            test_count += 1
-        test_acc /= test_count
+            val_acc += acc
+            val_count += 1
+        val_acc /= val_count
         print("{} Validation Accuracy = {:.4f}".format(datetime.now(),
-                                                       test_acc))
+                                                       val_acc))
         print("{} Saving checkpoint of model...".format(datetime.now()))
 
         # save checkpoint of the model
         checkpoint_name = os.path.join(checkpoint_path,
-                                       'model_epoch'+str(epoch+1)+'.ckpt')
+                                       'model_epoch' + str(epoch + 1) + '.ckpt')
         save_path = saver.save(sess, checkpoint_name)
 
         print("{} Model checkpoint saved at {}".format(datetime.now(),
