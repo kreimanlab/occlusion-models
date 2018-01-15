@@ -48,18 +48,18 @@ class ImageDataGenerator(object):
         self.txt_file = txt_file
 
         # retrieve the data from the text file
-        self._read_txt_file()
+        self._img_paths, self._labels = self._read_txt_file()
 
         # number of samples in the dataset
-        self.data_size = len(self.labels)
+        self.data_size = len(self._labels)
 
         # initial shuffling of the file and label lists (together!)
         if shuffle:
             self._shuffle_lists()
 
         # convert lists to TF tensor
-        self.img_paths = convert_to_tensor(self.img_paths, dtype=dtypes.string)
-        self.labels = convert_to_tensor(self.labels, dtype=dtypes.int32)
+        self.img_paths = convert_to_tensor(self._img_paths, dtype=dtypes.string)
+        self.labels = convert_to_tensor(self._labels, dtype=dtypes.float16)
 
         # create dataset
         data = Dataset.from_tensor_slices((self.img_paths, self.labels))
@@ -87,8 +87,8 @@ class ImageDataGenerator(object):
 
     def _read_txt_file(self):
         """Read the content of the text file and store it into lists."""
-        self.img_paths = []
-        self.labels = []
+        img_paths = []
+        labels = []
         with open(self.txt_file, 'r') as f:
             lines = f.readlines()
             for line in lines:
@@ -96,19 +96,20 @@ class ImageDataGenerator(object):
                 img_path = items[0]
                 if not os.path.isabs(img_path):
                     img_path = os.path.join(os.path.dirname(self.txt_file), img_path)
-                self.img_paths.append(img_path)
-                self.labels.append(list(map(int, items[1].split(','))))
+                img_paths.append(img_path)
+                labels.append(list(map(float, items[1].split(','))))
+        return img_paths, labels
 
     def _shuffle_lists(self):
         """Conjoined shuffling of the list of paths and labels."""
-        path = self.img_paths
-        labels = self.labels
+        path = self._img_paths
+        labels = self._labels
         permutation = np.random.permutation(self.data_size)
-        self.img_paths = []
-        self.labels = []
+        self._img_paths = []
+        self._labels = []
         for i in permutation:
-            self.img_paths.append(path[i])
-            self.labels.append(labels[i])
+            self._img_paths.append(path[i])
+            self._labels.append(labels[i])
 
     def _parse_function_train(self, filename, label):
         """Input parser for samples of the training set."""

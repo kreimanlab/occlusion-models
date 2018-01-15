@@ -12,192 +12,250 @@ Author: Frederik Kratzert
 contact: f.kratzert(at)gmail.com
 """
 
+import argparse
+import logging
+import math
 import os
+import sys
+from datetime import datetime
 
 import numpy as np
 import tensorflow as tf
+from tensorflow.contrib.data import Iterator
 
 from model.feature_extractors.alexnet.finetune_alexnet_with_tensorflow.alexnet import AlexNet
 from model.feature_extractors.alexnet.finetune_alexnet_with_tensorflow.datagenerator import ImageDataGenerator
-from datetime import datetime
-from tensorflow.contrib.data import Iterator
 
-"""
-Configuration Part.
-"""
+logger = logging.getLogger(__name__)
 
-# Path to the textfiles for the trainings and validation set
-train_file = os.path.join(os.path.dirname(__file__), 'images', 'train.txt')
-val_file = os.path.join(os.path.dirname(__file__), 'images', 'val.txt')
 
-# Learning params
-learning_rate = 0.01
-num_epochs = 25
-batch_size = 128
+def main():
+    parser = argparse.ArgumentParser(description='Finetune Alexnet')
+    parser.add_argument('--kfold', type=int, default=1)
+    parser.add_argument('--from_checkpoint', action='store_true', default=False)
+    parser.add_argument('--no-from_checkpoint', action='store_false', dest='from_checkpoint')
+    parser.add_argument('--prototype_run', action='store_true', default=False)
+    args = parser.parse_args()
+    logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+    logger.info('Running with args {:s}'.format(', '.join(
+        ['{}={}'.format(key, value) for (key, value) in vars(args).items()])))
 
-# Network params
-dropout_rate = 0.5
-num_classes = 4096
-train_layers = []  # train everything, not just ['fc8', 'fc7', 'fc6']
+    """
+    Configuration Part.
+    """
+    # Path to the textfiles for the trainings and validation set
+    data_path = os.path.join(os.path.dirname(__file__), 'images' if not args.prototype_run else 'images.proto')
+    train_file = os.path.join(data_path, 'train{}.txt'.format(args.kfold))
+    val_file = os.path.join(data_path, 'val{}.txt'.format(args.kfold))
+    test_file = os.path.join(data_path, 'test{}.txt'.format(args.kfold))
+    predictions_file = os.path.join(data_path, "predictions{}.txt".format(args.kfold))
 
-# How often we want to write the tf.summary data to disk
-display_step = 20
+    # Learning params
+    learning_rate = 0.01
+    num_epochs = 1000
+    batch_size = 128
+    patience = 10
 
-# Path for tf.summary.FileWriter and to store model checkpoints
-filewriter_path = "/tmp/finetune_alexnet/tensorboard"
-checkpoint_path = "/tmp/finetune_alexnet/checkpoints"
+    # Network params
+    dropout_rate = 0.5
+    num_classes = 4096
+    train_layers = []  # train everything, not just ['fc8', 'fc7', 'fc6']
 
-"""
-Main Part of the finetuning Script.
-"""
+    # How often we want to write the tf.summary data to disk
+    display_step = 20
 
-# Create parent path if it doesn't exist
-if not os.path.isdir(checkpoint_path):
-    os.makedirs(checkpoint_path, exist_ok=True)
+    # Path for tf.summary.FileWriter and to store model checkpoints
+    storage_path = os.path.join(os.path.dirname(__file__), "storage", "kfold{}".format(args.kfold))
+    filewriter_path = os.path.join(storage_path, "tensorboard")
+    checkpoint_path = os.path.join(storage_path, "checkpoints")
 
-# Place data loading and preprocessing on the cpu
-with tf.device('/cpu:0'):
-    tr_data = ImageDataGenerator(train_file,
-                                 mode='training',
-                                 batch_size=batch_size,
-                                 shuffle=True)
-    val_data = ImageDataGenerator(val_file,
-                                  mode='inference',
-                                  batch_size=batch_size,
-                                  shuffle=False)
+    """
+    Main Part of the finetuning Script.
+    """
 
-    # create an reinitializable iterator given the dataset structure
-    iterator = Iterator.from_structure(tr_data.data.output_types,
-                                       tr_data.data.output_shapes)
-    next_batch = iterator.get_next()
+    # Create parent path if it doesn't exist
+    if not os.path.isdir(checkpoint_path):
+        os.makedirs(checkpoint_path, exist_ok=True)
 
-# Ops for initializing the two different iterators
-training_init_op = iterator.make_initializer(tr_data.data)
-validation_init_op = iterator.make_initializer(val_data.data)
+    # Place data loading and preprocessing on the cpu
+    with tf.device('/cpu:0'):
+        logger.info('Loading data')
+        tr_data = ImageDataGenerator(train_file,
+                                     mode='training',
+                                     batch_size=batch_size,
+                                     shuffle=True)
+        val_data = ImageDataGenerator(val_file,
+                                      mode='inference',
+                                      batch_size=batch_size,
+                                      shuffle=False)
+        test_data = ImageDataGenerator(test_file,
+                                       mode='inference',
+                                       batch_size=batch_size,
+                                       shuffle=False)
 
-# TF placeholder for graph input and output
-x = tf.placeholder(tf.float32, [batch_size, 227, 227, 3])
-y = tf.placeholder(tf.float32, [batch_size, num_classes])
-keep_prob = tf.placeholder(tf.float32)
+        # create an reinitializable iterator given the dataset structure
+        iterator = Iterator.from_structure(tr_data.data.output_types,
+                                           tr_data.data.output_shapes)
+        next_batch = iterator.get_next()
 
-# Initialize model
-model = AlexNet(x, keep_prob, train_layers, output_layer='fc7')
+    # Ops for initializing the different iterators
+    training_init_op = iterator.make_initializer(tr_data.data)
+    validation_init_op = iterator.make_initializer(val_data.data)
+    test_init_op = iterator.make_initializer(test_data.data)
 
-# Link variable to model output
-predictions = model.output
+    # TF placeholder for graph input and output
+    x = tf.placeholder(tf.float32, [batch_size, 227, 227, 3])
+    y = tf.placeholder(tf.float32, [batch_size, num_classes])
+    keep_prob = tf.placeholder(tf.float32)
 
-# List of trainable variables of the layers we want to train
-var_list = [v for v in tf.trainable_variables() if not train_layers or v.name.split('/')[0] in train_layers]
+    # Initialize model
+    logger.info('Creating model')
+    model = AlexNet(x, keep_prob, train_layers, output_layer='fc7')
 
-# Op for calculating the loss
-with tf.name_scope("loss"):
-    loss = tf.losses.mean_squared_error(predictions=predictions, labels=y)
+    # Link variable to model output
+    predictions = model.output
 
-# Train op
-with tf.name_scope("train"):
-    # Get gradients of all trainable variables
-    gradients = tf.gradients(loss, var_list)
-    gradients = list(zip(gradients, var_list))
-    gradients = [(g, v) for g, v in gradients if g is not None]
+    # List of trainable variables of the layers we want to train
+    var_list = [v for v in tf.trainable_variables() if not train_layers or v.name.split('/')[0] in train_layers]
 
-    # Create optimizer and apply gradient descent to the trainable variables
-    optimizer = tf.train.GradientDescentOptimizer(learning_rate)
-    train_op = optimizer.apply_gradients(grads_and_vars=gradients)
+    # Op for calculating the loss
+    with tf.name_scope("loss"):
+        loss = tf.losses.mean_squared_error(predictions=predictions, labels=y)
 
-# Add gradients to summary
-for gradient, var in gradients:
-    tf.summary.histogram(var.name + '/gradient', gradient)
+    # Train op
+    with tf.name_scope("train"):
+        # Get gradients of all trainable variables
+        gradients = tf.gradients(loss, var_list)
+        gradients = list(zip(gradients, var_list))
+        gradients = [(g, v) for g, v in gradients if g is not None]
 
-# Add the variables we train to the summary
-for var in var_list:
-    tf.summary.histogram(var.name, var)
+        # Create optimizer and apply gradient descent to the trainable variables
+        optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+        train_op = optimizer.apply_gradients(grads_and_vars=gradients)
 
-# Add the loss to summary
-tf.summary.scalar('loss', loss)
+    # Add gradients to summary
+    for gradient, var in gradients:
+        tf.summary.histogram(var.name + '/gradient', gradient)
 
-# Evaluation op: Accuracy of the model
-with tf.name_scope("accuracy"):
-    correct_pred = tf.equal(tf.argmax(predictions, 1), tf.argmax(y, 1))
-    accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+    # Add the variables we train to the summary
+    for var in var_list:
+        tf.summary.histogram(var.name, var)
 
-# Add the accuracy to the summary
-tf.summary.scalar('accuracy', accuracy)
+    # Add the loss to summary
+    tf.summary.scalar('loss', loss)
 
-# Merge all summaries together
-merged_summary = tf.summary.merge_all()
+    # Merge all summaries together
+    merged_summary = tf.summary.merge_all()
 
-# Initialize the FileWriter
-writer = tf.summary.FileWriter(filewriter_path)
+    # Initialize the FileWriter
+    writer = tf.summary.FileWriter(filewriter_path)
 
-# Initialize an saver for store model checkpoints
-saver = tf.train.Saver()
+    # Initialize an saver for store model checkpoints
+    saver = tf.train.Saver()
 
-# Get the number of training/validation steps per epoch
-train_batches_per_epoch = max(int(np.floor(tr_data.data_size / batch_size)), 1)
-val_batches_per_epoch = max(int(np.floor(val_data.data_size / batch_size)), 1)
+    # Get the number of training/validation steps per epoch
+    train_batches_per_epoch = max(int(np.floor(tr_data.data_size / batch_size)), 1)
+    val_batches_per_epoch = max(int(np.floor(val_data.data_size / batch_size)), 1)
+    test_batches_per_epoch = max(int(np.floor(test_data.data_size / batch_size)), 1)
 
-# Start Tensorflow session
-with tf.Session() as sess:
-    # Initialize all variables
-    sess.run(tf.global_variables_initializer())
+    # Start Tensorflow session
+    with tf.Session() as sess:
+        start_epoch = 0
+        if args.from_checkpoint:
+            checkpoints = [f[:-6] for f in
+                           [os.path.join(checkpoint_path, f) for f in os.listdir(checkpoint_path)
+                            if f.endswith(".ckpt.index")] if os.path.isfile(f)]
+            if len(checkpoints) == 0:
+                logger.warning("No checkpoints found - starting from scratch")
+                args.from_checkpoint = False
+            else:
+                last_checkpoint = sorted(checkpoints)[-1]
+                try:
+                    saver.restore(sess, last_checkpoint)
+                    start_epoch = int(last_checkpoint[-6]) + 1
+                except Exception:
+                    logger.warning("Unable to recover checkpoint {} - starting from scratch".format(last_checkpoint))
+                    args.from_checkpoint = False
+        if not args.from_checkpoint:
+            # Initialize all variables
+            sess.run(tf.global_variables_initializer())
+            # Load the pretrained weights into the non-trainable layer
+            model.load_initial_weights(sess)
 
-    # Add the model graph to TensorBoard
-    writer.add_graph(sess.graph)
+        # Add the model graph to TensorBoard
+        writer.add_graph(sess.graph)
 
-    # Load the pretrained weights into the non-trainable layer
-    model.load_initial_weights(sess)
+        logger.info("{} Start training...".format(datetime.now()))
+        logger.info("{} Open Tensorboard at --logdir {}".format(datetime.now(), filewriter_path))
 
-    print("{} Start training...".format(datetime.now()))
-    print("{} Open Tensorboard at --logdir {}".format(datetime.now(),
-                                                      filewriter_path))
+        # Loop over number of epochs
+        best_val_epoch, best_val_loss = None, math.inf
+        for epoch in range(start_epoch, num_epochs):
 
-    # Loop over number of epochs
-    for epoch in range(num_epochs):
+            logger.info("{} Epoch number: {}".format(datetime.now(), epoch + 1))
 
-        print("{} Epoch number: {}".format(datetime.now(), epoch + 1))
+            # Initialize iterator with the training dataset
+            sess.run(training_init_op)
 
-        # Initialize iterator with the training dataset
-        sess.run(training_init_op)
+            for step in range(train_batches_per_epoch):
 
-        for step in range(train_batches_per_epoch):
+                # get next batch of data
+                img_batch, label_batch = sess.run(next_batch)
 
-            # get next batch of data
-            img_batch, label_batch = sess.run(next_batch)
+                # And run the training op
+                sess.run(train_op, feed_dict={x: img_batch,
+                                              y: label_batch,
+                                              keep_prob: dropout_rate})
 
-            # And run the training op
-            sess.run(train_op, feed_dict={x: img_batch,
-                                          y: label_batch,
-                                          keep_prob: dropout_rate})
+                # Generate summary with the current batch of data and write to file
+                if step % display_step == 0:
+                    s = sess.run(merged_summary, feed_dict={x: img_batch,
+                                                            y: label_batch,
+                                                            keep_prob: 1.})
 
-            # Generate summary with the current batch of data and write to file
-            if step % display_step == 0:
-                s = sess.run(merged_summary, feed_dict={x: img_batch,
-                                                        y: label_batch,
-                                                        keep_prob: 1.})
+                    writer.add_summary(s, epoch * train_batches_per_epoch + step)
 
-                writer.add_summary(s, epoch * train_batches_per_epoch + step)
+            # save checkpoint of the model
+            logger.info("{} Saving checkpoint of model...".format(datetime.now()))
+            checkpoint_name = os.path.join(checkpoint_path, 'model_epoch{:d}.ckpt'.format(epoch + 1))
+            save_path = saver.save(sess, checkpoint_name)
+            logger.info("{} Model checkpoint saved at {}".format(datetime.now(), save_path))
 
-        # Validate the model on the entire validation set
-        print("{} Start validation".format(datetime.now()))
-        sess.run(validation_init_op)
-        val_acc = 0.
-        val_count = 0
-        for _ in range(val_batches_per_epoch):
-            img_batch, label_batch = sess.run(next_batch)
-            acc = sess.run(accuracy, feed_dict={x: img_batch,
-                                                y: label_batch,
-                                                keep_prob: 1.})
-            val_acc += acc
-            val_count += 1
-        val_acc /= val_count
-        print("{} Validation Accuracy = {:.4f}".format(datetime.now(),
-                                                       val_acc))
-        print("{} Saving checkpoint of model...".format(datetime.now()))
+            # Validate the model on the entire validation set
+            logger.info("{} Start validation".format(datetime.now()))
+            sess.run(validation_init_op)
+            val_loss = 0.
+            val_count = 0
+            for _ in range(val_batches_per_epoch):
+                img_batch, label_batch = sess.run(next_batch)
+                _loss = sess.run(loss, feed_dict={x: img_batch,
+                                                  y: label_batch,
+                                                  keep_prob: 1.})
+                val_loss += _loss
+                val_count += 1
+            val_loss /= val_count
+            logger.info("{} Validation Loss = {:.4f}".format(datetime.now(), val_loss))
+            if val_loss < best_val_loss:
+                best_val_loss, best_val_epoch = val_loss, epoch
+                saver.save(sess, os.path.join(checkpoint_path, 'model_best.ckpt'))
 
-        # save checkpoint of the model
-        checkpoint_name = os.path.join(checkpoint_path,
-                                       'model_epoch' + str(epoch + 1) + '.ckpt')
-        save_path = saver.save(sess, checkpoint_name)
+                # Test the model
+                logger.info("{} Start test".format(datetime.now()))
+                test_predictions = np.empty((test_data.data_size, num_classes))
+                sess.run(test_init_op)
+                for batch_num in range(test_batches_per_epoch):
+                    img_batch, label_batch = sess.run(next_batch)
+                    test_predictions[batch_num * batch_size:(batch_num + 1) * batch_size, :] = \
+                        sess.run(predictions, feed_dict={x: img_batch, keep_prob: 1.})
+                with open(predictions_file, 'w') as f:
+                    for img_path, prediction in zip(test_data._img_paths, test_predictions):
+                        f.write('{} {}\n'.format(img_path, prediction))
+                logger.info("Wrote predictions to {}".format(predictions_file))
+            elif epoch - best_val_epoch > patience:
+                logger.info("Validation loss has not decreased for {:d} epochs - stop (best epoch: {:d})".format(
+                    epoch - best_val_epoch, best_val_epoch))
+                break
 
-        print("{} Model checkpoint saved at {}".format(datetime.now(),
-                                                       checkpoint_name))
+
+if __name__ == '__main__':
+    main()
