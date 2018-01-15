@@ -249,7 +249,7 @@ def main():
                         sess.run(predictions, feed_dict={x: img_batch, keep_prob: 1.})
                 with open(predictions_file, 'w') as f:
                     for img_path, prediction in zip(test_data._img_paths, test_predictions):
-                        f.write('{} {}\n'.format(img_path, prediction))
+                        f.write('{} {}\n'.format(img_path, ",".join([str(p) for p in prediction])))
                 logger.info("Wrote predictions to {}".format(predictions_file))
             elif epoch - best_val_epoch > patience:
                 logger.info("Validation loss has not decreased for {:d} epochs - stop (best epoch: {:d})".format(
