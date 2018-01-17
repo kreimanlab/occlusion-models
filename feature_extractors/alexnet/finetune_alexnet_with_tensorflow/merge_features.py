@@ -23,11 +23,12 @@ def load(features_file):
 
 
 def merge_lists(image_features):
-    return itertools.chain(*image_features)
+    return list(itertools.chain(*image_features))
 
 
 def sort(image_features):
-    result = sorted(image_features, key=lambda imgpath_features: imgpath_features[0])
+    result = sorted(image_features,
+                    key=lambda imgpath_features: int(os.path.splitext(os.path.basename(imgpath_features[0]))[0]))
     return result
 
 
@@ -38,7 +39,7 @@ def convert_matrix(image_features):
 
 def save(features, target_filepath=os.path.join(os.path.dirname(__file__), '..', '..', '..', '..',
                                                 'data', 'features', 'data_occlusion_klab325v2',
-                                                'alexnet-finetune.mat')):
+                                                'alexnet-finetune-relu7.mat')):
     scipy.io.savemat(target_filepath, {'features': features})
     return target_filepath
 
