@@ -37,11 +37,26 @@ def convert_matrix(image_features):
     return np.array(features)
 
 
-def save(features, target_filepath=os.path.join(os.path.dirname(__file__), '..', '..', '..', '..',
-                                                'data', 'features', 'data_occlusion_klab325v2',
-                                                'alexnet-finetune-relu7.mat')):
+def save(features, features_directory):
+    target_filepath = os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', 'data', 'features',
+                                   features_directory, 'alexnet-finetune-relu7.mat')
     scipy.io.savemat(target_filepath, {'features': features})
     return target_filepath
+
+
+def process(image_features, save_directory):
+    image_features = sort(image_features)
+    features = convert_matrix(image_features)
+    savepath = save(features, save_directory)
+    logger.info('Saved to {}'.format(savepath))
+
+
+def extract(image_features, image_directory):
+    filter_fun = lambda img_features: os.path.basename(os.path.split(img_features[0])[0]) == image_directory
+    result = list(filter(filter_fun, image_features))
+    if len(result) == 0:
+        raise ValueError('no image features found for directory {}'.format(image_directory))
+    return result
 
 
 def main():
@@ -56,11 +71,11 @@ def main():
     logger.info('Loading from {} files'.format(len(features_files)))
     image_features = [load(features_file) for features_file in features_files]
     image_features = merge_lists(image_features)
-    image_features = sort(image_features)
-    features = convert_matrix(image_features)
-    logger.info('Loaded features of size {}'.format(features.shape))
-    savepath = save(features)
-    logger.info('Saved to {}'.format(savepath))
+    logger.info('Loaded features of size {}'.format(len(image_features)))
+    occluded_features = extract(image_features, 'occluded')
+    whole_features = extract(image_features, 'occluded')
+    process(occluded_features, 'data_occlusion_klab325v2')
+    process(whole_features, 'klab325_orig')
 
 
 if __name__ == '__main__':
