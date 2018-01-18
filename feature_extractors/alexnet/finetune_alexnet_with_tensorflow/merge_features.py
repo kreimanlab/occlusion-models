@@ -48,7 +48,7 @@ def process(image_features, save_directory):
     image_features = sort(image_features)
     features = convert_matrix(image_features)
     savepath = save(features, save_directory)
-    logger.info('Saved to {}'.format(savepath))
+    logger.info('Saved {} to {}'.format(features.shape, savepath))
 
 
 def extract(image_features, image_directory):
@@ -73,7 +73,7 @@ def main():
     image_features = merge_lists(image_features)
     logger.info('Loaded features of size {}'.format(len(image_features)))
     occluded_features = extract(image_features, 'occluded')
-    whole_features = extract(image_features, 'occluded')
+    whole_features = extract(image_features, 'whole')
     process(occluded_features, 'data_occlusion_klab325v2')
     process(whole_features, 'klab325_orig')
 
