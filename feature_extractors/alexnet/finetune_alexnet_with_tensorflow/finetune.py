@@ -35,6 +35,11 @@ def main():
     parser.add_argument('--from_checkpoint', action='store_true', default=False)
     parser.add_argument('--no-from_checkpoint', action='store_false', dest='from_checkpoint')
     parser.add_argument('--prototype_run', action='store_true', default=False)
+    parser.add_argument('--save_every', type=int, default=10)
+    parser.add_argument('--learning_rate', type=float, default=0.01)
+    parser.add_argument('--num_epochs', type=int, default=1000)
+    parser.add_argument('--batch_size', type=int, default=16)  # TODO: make sure this still trains well (was 128)
+    parser.add_argument('--patience', type=int, default=10)
     args = parser.parse_args()
     logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
     logger.info('Running with args {:s}'.format(', '.join(
@@ -51,10 +56,6 @@ def main():
     predictions_file = os.path.join(data_path, "predictions{}.txt".format(args.kfold))
 
     # Learning params
-    learning_rate = 0.01
-    num_epochs = 1000
-    batch_size = 128
-    patience = 10
 
     # Network params
     dropout_rate = 0.5
@@ -82,15 +83,15 @@ def main():
         logger.info('Loading data')
         tr_data = ImageDataGenerator(train_file,
                                      mode='training',
-                                     batch_size=batch_size,
+                                     batch_size=args.batch_size,
                                      shuffle=True)
         val_data = ImageDataGenerator(val_file,
                                       mode='inference',
-                                      batch_size=batch_size,
+                                      batch_size=args.batch_size,
                                       shuffle=False)
         test_data = ImageDataGenerator(test_file,
                                        mode='inference',
-                                       batch_size=batch_size,
+                                       batch_size=args.batch_size,
                                        shuffle=False)
 
         # create an reinitializable iterator given the dataset structure
@@ -104,8 +105,8 @@ def main():
     test_init_op = iterator.make_initializer(test_data.data)
 
     # TF placeholder for graph input and output
-    x = tf.placeholder(tf.float32, [batch_size, 227, 227, 3])
-    y = tf.placeholder(tf.float32, [batch_size, num_classes])
+    x = tf.placeholder(tf.float32, [args.batch_size, 227, 227, 3])
+    y = tf.placeholder(tf.float32, [args.batch_size, num_classes])
     keep_prob = tf.placeholder(tf.float32)
 
     # Initialize model
@@ -130,7 +131,7 @@ def main():
         gradients = [(g, v) for g, v in gradients if g is not None]
 
         # Create optimizer and apply gradient descent to the trainable variables
-        optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+        optimizer = tf.train.GradientDescentOptimizer(args.learning_rate)
         train_op = optimizer.apply_gradients(grads_and_vars=gradients)
 
     # Add gradients to summary
@@ -154,9 +155,9 @@ def main():
     saver = tf.train.Saver()
 
     # Get the number of training/validation steps per epoch
-    train_batches_per_epoch = max(int(np.floor(tr_data.data_size / batch_size)), 1)
-    val_batches_per_epoch = max(int(np.floor(val_data.data_size / batch_size)), 1)
-    test_batches_per_epoch = max(int(np.floor(test_data.data_size / batch_size)), 1)
+    train_batches_per_epoch = max(int(np.floor(tr_data.data_size / args.batch_size)), 1)
+    val_batches_per_epoch = max(int(np.floor(val_data.data_size / args.batch_size)), 1)
+    test_batches_per_epoch = max(int(np.floor(test_data.data_size / args.batch_size)), 1)
 
     # Start Tensorflow session
     with tf.Session() as sess:
@@ -172,7 +173,7 @@ def main():
                 last_checkpoint = sorted(checkpoints)[-1]
                 try:
                     saver.restore(sess, last_checkpoint)
-                    start_epoch = int(last_checkpoint[-6]) + 1
+                    start_epoch = int(last_checkpoint[-6]) + 1  # TODO: fix hard-coded single-digit (doesn't work for 11)
                 except Exception:
                     logger.warning("Unable to recover checkpoint {} - starting from scratch".format(last_checkpoint))
                     args.from_checkpoint = False
@@ -190,7 +191,7 @@ def main():
 
         # Loop over number of epochs
         best_val_epoch, best_val_loss = None, math.inf
-        for epoch in range(start_epoch, num_epochs):
+        for epoch in range(start_epoch, args.num_epochs):
 
             logger.info("{} Epoch number: {}".format(datetime.now(), epoch + 1))
 
@@ -216,10 +217,11 @@ def main():
                     writer.add_summary(s, epoch * train_batches_per_epoch + step)
 
             # save checkpoint of the model
-            logger.info("{} Saving checkpoint of model...".format(datetime.now()))
-            checkpoint_name = os.path.join(checkpoint_path, 'model_epoch{:d}.ckpt'.format(epoch + 1))
-            save_path = saver.save(sess, checkpoint_name)
-            logger.info("{} Model checkpoint saved at {}".format(datetime.now(), save_path))
+            if epoch % args.save_every == 0:
+                logger.info("{} Saving checkpoint of model...".format(datetime.now()))
+                checkpoint_name = os.path.join(checkpoint_path, 'model_epoch{:d}.ckpt'.format(epoch + 1))
+                save_path = saver.save(sess, checkpoint_name)
+                logger.info("{} Model checkpoint saved at {}".format(datetime.now(), save_path))
 
             # Validate the model on the entire validation set
             logger.info("{} Start validation".format(datetime.now()))
@@ -245,13 +247,13 @@ def main():
                 sess.run(test_init_op)
                 for batch_num in range(test_batches_per_epoch):
                     img_batch, label_batch = sess.run(next_batch)
-                    test_predictions[batch_num * batch_size:(batch_num + 1) * batch_size, :] = \
+                    test_predictions[batch_num * args.batch_size:(batch_num + 1) * args.batch_size, :] = \
                         sess.run(predictions, feed_dict={x: img_batch, keep_prob: 1.})
                 with open(predictions_file, 'w') as f:
                     for img_path, prediction in zip(test_data._img_paths, test_predictions):
                         f.write('{} {}\n'.format(img_path, ",".join([str(p) for p in prediction])))
                 logger.info("Wrote predictions to {}".format(predictions_file))
-            elif epoch - best_val_epoch > patience:
+            elif epoch - best_val_epoch > args.patience:
                 logger.info("Validation loss has not decreased for {:d} epochs - stop (best epoch: {:d})".format(
                     epoch - best_val_epoch, best_val_epoch))
                 break
