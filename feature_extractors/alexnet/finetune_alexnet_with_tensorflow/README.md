@@ -1,3 +1,16 @@
+# Finetune AlexNet
+
+1. Create the data in Matlab: `prepareData()`
+2. Run the model: `for kfold in 1 2 3 4 5; do python finetune.py --kfold "$kfold"; done`
+3. Merge the features: `python merge_features.py`
+4. Run the classification in Matlab: `run('classification', 'featureExtractors', {NamedFeatures('alexnet-finetune-relu7')}, 'trainDirectory', 'data/features/klab325_orig/', 'testDirectory', 'data/features/data_occlusion_klab325v2/')`
+5. Display the results in Matlab: `displayResults(results)`
+
+
+___
+
+The following is the original README
+
 ![](https://zenodo.org/badge/DOI/10.5281/zenodo.1037359.svg)
 
 # Finetune AlexNet with Tensorflow
