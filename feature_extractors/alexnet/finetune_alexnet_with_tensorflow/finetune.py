@@ -36,7 +36,9 @@ def main():
     parser.add_argument('--no-from_checkpoint', action='store_false', dest='from_checkpoint')
     parser.add_argument('--prototype_run', action='store_true', default=False)
     parser.add_argument('--save_every', type=int, default=10)
+    parser.add_argument('--display_step', type=int, default=20, help='how often to write the tf.summary to disk')
     parser.add_argument('--learning_rate', type=float, default=0.01)
+    parser.add_argument('--dropout_rate', type=float, default=0.5)
     parser.add_argument('--num_epochs', type=int, default=1000)
     parser.add_argument('--batch_size', type=int, default=16)  # TODO: make sure this still trains well (was 128)
     parser.add_argument('--patience', type=int, default=10)
@@ -55,15 +57,9 @@ def main():
     test_file = os.path.join(data_path, 'test{}.txt'.format(args.kfold))
     predictions_file = os.path.join(data_path, "predictions{}.txt".format(args.kfold))
 
-    # Learning params
-
     # Network params
-    dropout_rate = 0.5
     num_classes = 4096
     train_layers = []  # train everything, not just ['fc8', 'fc7', 'fc6']
-
-    # How often we want to write the tf.summary data to disk
-    display_step = 20
 
     # Path for tf.summary.FileWriter and to store model checkpoints
     storage_path = os.path.join(os.path.dirname(__file__), "storage", "kfold{}".format(args.kfold))
@@ -173,7 +169,8 @@ def main():
                 last_checkpoint = sorted(checkpoints)[-1]
                 try:
                     saver.restore(sess, last_checkpoint)
-                    start_epoch = int(last_checkpoint[-6]) + 1  # TODO: fix hard-coded single-digit (doesn't work for 11)
+                    start_epoch = int(
+                        last_checkpoint[-6]) + 1  # TODO: fix hard-coded single-digit (doesn't work for 11)
                 except Exception:
                     logger.warning("Unable to recover checkpoint {} - starting from scratch".format(last_checkpoint))
                     args.from_checkpoint = False
@@ -206,10 +203,10 @@ def main():
                 # And run the training op
                 sess.run(train_op, feed_dict={x: img_batch,
                                               y: label_batch,
-                                              keep_prob: dropout_rate})
+                                              keep_prob: args.dropout_rate})
 
                 # Generate summary with the current batch of data and write to file
-                if step % display_step == 0:
+                if step % args.display_step == 0:
                     s = sess.run(merged_summary, feed_dict={x: img_batch,
                                                             y: label_batch,
                                                             keep_prob: 1.})
