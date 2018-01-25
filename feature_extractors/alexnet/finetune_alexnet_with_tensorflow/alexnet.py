@@ -28,7 +28,7 @@ import numpy as np
 class AlexNet(object):
     """Implementation of the AlexNet."""
 
-    def __init__(self, x, keep_prob, skip_layer, num_classes=1000,
+    def __init__(self, x, keep_prob, skip_layer=[], num_classes=1000,
                  weights_path='DEFAULT', output_layer='fc8'):
         """Create the graph of the AlexNet model.
 
