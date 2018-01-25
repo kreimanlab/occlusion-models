@@ -15,15 +15,19 @@ validationSplit = 0.1;
 directory = [fileparts(mfilename('fullpath')), '/images'];
 wholeDirectory = [directory, '/whole/'];
 occludedDirectory = [directory, '/occluded/'];
+lessOccludedDirectory = [directory, '/lessOcclusion/'];
 mkdir(directory);
 mkdir(wholeDirectory);
 mkdir(occludedDirectory);
+mkdir(lessOccludedDirectory);
 
 %% data
 images = load('data/KLAB325.mat');
 images = images.img_mat;
 occlusionData = load('data/data_occlusion_klab325v2.mat');
 occlusionData = occlusionData.data;
+lessOcclusionData = load('data/lessOcclusion/data_occlusion_klab325-high_visibility.mat');
+lessOcclusionData = lessOcclusionData.data;
 bubbleSigmas = repmat(14, [size(occlusionData, 1), 10]);
 wholeFeatures = load('data/features/klab325_orig/alexnet-relu7.mat');
 wholeFeatures = wholeFeatures.features;
@@ -44,6 +48,7 @@ assert(numel(wholeSamples) / numel(occludedSamples) == occludedWholeRatio);
 fprintf('Processing objects\n');
 allOccludedFilepaths = cell(size(objects));
 allWholeFilepaths = cell(size(objects));
+allLessOccludedFilepaths = cell(size(objects));
 devOccludedFilepaths = cell(size(objects));
 devWholeFilepaths = cell(size(objects));
 for i = objects
@@ -61,7 +66,7 @@ for i = objects
     occlusionDataSelection = find(occlusionData.pres == i)';
     assert(numel(unique(occlusionData.truth(occlusionDataSelection))) == 1);
     for row = occlusionDataSelection
-        %% occlude image
+        % occlude image
         occludedImage = occlude({baseImage}, occlusionData.nbubbles(row), ...
             occlusionData.bubble_centers(row, :), bubbleSigmas(row, :));
         occludedImage = convertImage(occludedImage{1}, imageSize);
@@ -71,6 +76,18 @@ for i = objects
         if ismember(row, occludedSamples)
             devOccludedFilepaths = appendFilepath(filepath, devOccludedFilepaths, i);
         end
+    end
+    %% less occluded
+    occlusionDataSelection = find(lessOcclusionData.pres == i)';
+    assert(numel(unique(lessOcclusionData.truth(occlusionDataSelection))) == 1);
+    for row = occlusionDataSelection
+        % occlude image
+        occludedImage = occlude({baseImage}, lessOcclusionData.nbubbles(row), ...
+            lessOcclusionData.bubble_centers(row, :), lessOcclusionData.bubbleSigmas(row, :));
+        occludedImage = convertImage(occludedImage{1}, imageSize);
+        filepath = [lessOccludedDirectory, sprintf('%d', row), '.png'];
+        imwrite(occludedImage, filepath);
+        allLessOccludedFilepaths = appendFilepath(filepath, allLessOccludedFilepaths, i);
     end
 end
 assert(numel(devOccludedFilepaths) / numel(devWholeFilepaths) == occludedWholeRatio);
@@ -98,6 +115,7 @@ for kfold = 1:size(crossValidations, 1)
     writeToFile(valFilepath, valObjects', wholeFeatures, devWholeFilepaths, 'a');
     writeToFile(testFilepath, testObjects', wholeFeatures, allOccludedFilepaths);
     writeToFile(testFilepath, testObjects', wholeFeatures, allWholeFilepaths, 'a');
+    writeToFile(testFilepath, testObjects', wholeFeatures, allLessOccludedFilepaths, 'a');
 end
 end
 
