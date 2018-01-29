@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 def main():
     parser = argparse.ArgumentParser(description='Finetune Alexnet')
     parser.add_argument('--kfold', type=int, default=1)
+    parser.add_argument('--images_dirname', type=str, default='images')
     parser.add_argument('--from_checkpoint', action='store_true', default=False)
     parser.add_argument('--no-from_checkpoint', action='store_false', dest='from_checkpoint')
     parser.add_argument('--prototype_run', action='store_true', default=False)
@@ -51,7 +52,8 @@ def main():
     Configuration Part.
     """
     # Path to the textfiles for the trainings and validation set
-    data_path = os.path.join(os.path.dirname(__file__), 'images' if not args.prototype_run else 'images.proto')
+    data_path = os.path.join(os.path.dirname(__file__),
+                             args.images_dirname + ('' if not args.prototype_run else '.proto'))
     train_file = os.path.join(data_path, 'train{}.txt'.format(args.kfold))
     val_file = os.path.join(data_path, 'val{}.txt'.format(args.kfold))
     test_file = os.path.join(data_path, 'test{}.txt'.format(args.kfold))
