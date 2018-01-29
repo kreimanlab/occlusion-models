@@ -1,5 +1,5 @@
-function prepareData(occludedWholeRatio)
-%PREPAREDATA prepares the data for fine-tuning (mixed training)
+function prepareDataAcrossCategories(occludedWholeRatio)
+%PREPAREDATAACROSSCATEGORIES prepares the data for fine-tuning (mixed training)
 %   occludedWholeRatio: number of occluded images to train on divided by 
 %   number of whole images to train on
 
@@ -9,10 +9,11 @@ if ~exist('occludedWholeRatio', 'var')
 end
 imageSize = 227;
 kfolds = 5;
-validationSplit = 0.1;
+categorySplit = 1; % leave-one-out
+rng(0);
 
 %% directories
-directory = [fileparts(mfilename('fullpath')), '/images'];
+directory = [fileparts(mfilename('fullpath')), '/images-across_categories'];
 wholeDirectory = [directory, '/whole/'];
 occludedDirectory = [directory, '/occluded/'];
 lessOccludedDirectory = [directory, '/lessOcclusion/'];
@@ -31,7 +32,8 @@ lessOcclusionData = lessOcclusionData.data;
 bubbleSigmas = repmat(14, [size(occlusionData, 1), 10]);
 wholeFeatures = load('data/features/klab325_orig/alexnet-relu7.mat');
 wholeFeatures = wholeFeatures.features;
-objects = 1:size(wholeFeatures, 1);
+objects = unique(occlusionData.pres)';
+categories = unique(occlusionData.truth);
 
 %% draw samples
 assert(occludedWholeRatio <= size(occlusionData, 1) / numel(objects));
@@ -95,16 +97,19 @@ assert(numel(devOccludedFilepaths) / numel(devWholeFilepaths) == occludedWholeRa
 %% cross-validation
 fprintf('Splitting for cross-validation\n');
 crossfun = @(xtrainval, xtest) {xtrainval, xtest};
-crossValidations = crossval(crossfun, objects', 'kfold', kfolds);
+crossValidations = crossval(crossfun, categories, 'kfold', kfolds);
 for kfold = 1:size(crossValidations, 1)
     fprintf('Kfold %d/%d\n', kfold, kfolds);
     % split
-    trainValObjects = crossValidations{kfold, 1};
-    [trainInd, valInd, ~] = dividerand(numel(trainValObjects), 1 - validationSplit, validationSplit, 0);
-    trainObjects = trainValObjects(trainInd);
-    valObjects = trainValObjects(valInd);
-    assert(numel(valObjects) / (numel(trainObjects) + numel(valObjects)) == validationSplit);
-    testObjects = crossValidations{kfold, 2};
+    trainValCategories = crossValidations{kfold, 1};
+    testCategories = crossValidations{kfold, 2};
+    [trainInd, valInd, ~] = dividerand(numel(trainValCategories), ...
+        numel(trainValCategories) - categorySplit, categorySplit, 0);
+    trainCategories = trainValCategories(trainInd);
+    valCategories = trainValCategories(valInd);
+    trainObjects = objectsFromCategory(trainCategories, occlusionData);
+    valObjects = objectsFromCategory(valCategories, occlusionData);
+    testObjects = objectsFromCategory(testCategories, occlusionData);
     % write to files
     trainFilepath = [directory, sprintf('/train%d.txt', kfold)];
     valFilepath = [directory, sprintf('/val%d.txt', kfold)];
@@ -117,6 +122,10 @@ for kfold = 1:size(crossValidations, 1)
     writeToFile(testFilepath, testObjects', wholeFeatures, allWholeFilepaths, 'a');
     writeToFile(testFilepath, testObjects', wholeFeatures, allLessOccludedFilepaths, 'a');
 end
+end
+
+function objects = objectsFromCategory(categories, data)
+objects = unique(data.pres(ismember(data.truth, categories)));
 end
 
 function image = convertImage(baseImage, imageSize)
