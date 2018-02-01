@@ -1,4 +1,4 @@
-function prepareDataAcrossObjects(occludedWholeRatio)
+function prepareDataAcrossObjects(occludedWholeRatio, writeFeatures)
 %PREPAREDATAACROSSOBJECTS prepares the data for fine-tuning (mixed training)
 %   occludedWholeRatio: number of occluded images to train on divided by 
 %   number of whole images to train on
@@ -7,13 +7,21 @@ function prepareDataAcrossObjects(occludedWholeRatio)
 if ~exist('occludedWholeRatio', 'var')
     occludedWholeRatio = 1/1;
 end
+if ~exist('writeFeatures', 'var')
+    writeFeatures = true; % features or categorical
+end
 imageSize = 227;
 kfolds = 5;
 validationSplit = 0.1;
 rng(0);
 
 %% directories
-directory = [fileparts(mfilename('fullpath')), '/images'];
+directory = [fileparts(mfilename('fullpath')), '/images-across_objects/'];
+if writeFeatures
+    directory = [directory, 'features/'];
+else
+    directory = [directory, 'categorical/'];
+end
 wholeDirectory = [directory, '/whole/'];
 occludedDirectory = [directory, '/occluded/'];
 lessOccludedDirectory = [directory, '/lessOcclusion/'];
@@ -30,9 +38,13 @@ occlusionData = occlusionData.data;
 lessOcclusionData = load('data/lessOcclusion/data_occlusion_klab325-high_visibility.mat');
 lessOcclusionData = lessOcclusionData.data;
 bubbleSigmas = repmat(14, [size(occlusionData, 1), 10]);
-wholeFeatures = load('data/features/klab325_orig/alexnet-relu7.mat');
-wholeFeatures = wholeFeatures.features;
-objects = 1:size(wholeFeatures, 1);
+objects = sort(unique(occlusionData.pres))';
+if writeFeatures
+    wholeFeatures = load('data/features/klab325_orig/alexnet-relu7.mat');
+    groundTruth = wholeFeatures.features;
+else
+    groundTruth = objects';
+end
 
 %% draw samples
 assert(occludedWholeRatio <= size(occlusionData, 1) / numel(objects));
@@ -110,13 +122,13 @@ for kfold = 1:size(crossValidations, 1)
     trainFilepath = [directory, sprintf('/train%d.txt', kfold)];
     valFilepath = [directory, sprintf('/val%d.txt', kfold)];
     testFilepath = [directory, sprintf('/test%d.txt', kfold)];
-    writeToFile(trainFilepath, trainObjects', wholeFeatures, devOccludedFilepaths);
-    writeToFile(trainFilepath, trainObjects', wholeFeatures, devWholeFilepaths, 'a');
-    writeToFile(valFilepath, valObjects', wholeFeatures, devOccludedFilepaths);
-    writeToFile(valFilepath, valObjects', wholeFeatures, devWholeFilepaths, 'a');
-    writeToFile(testFilepath, testObjects', wholeFeatures, allOccludedFilepaths);
-    writeToFile(testFilepath, testObjects', wholeFeatures, allWholeFilepaths, 'a');
-    writeToFile(testFilepath, testObjects', wholeFeatures, allLessOccludedFilepaths, 'a');
+    writeToFile(trainFilepath, trainObjects', groundTruth, devOccludedFilepaths);
+    writeToFile(trainFilepath, trainObjects', groundTruth, devWholeFilepaths, 'a');
+    writeToFile(valFilepath, valObjects', groundTruth, devOccludedFilepaths);
+    writeToFile(valFilepath, valObjects', groundTruth, devWholeFilepaths, 'a');
+    writeToFile(testFilepath, testObjects', groundTruth, allOccludedFilepaths);
+    writeToFile(testFilepath, testObjects', groundTruth, allWholeFilepaths, 'a');
+    writeToFile(testFilepath, testObjects', groundTruth, allLessOccludedFilepaths, 'a');
 end
 end
 
@@ -132,18 +144,26 @@ function objectFilepaths = appendFilepath(filepath, objectFilepaths, i)
     objectFilepaths{i} = filepaths;
 end
 
-function writeToFile(filepath, objects, features, objectFilepaths, fileaccess)
+function writeToFile(filepath, objects, groundTruths, objectFilepaths, fileaccess)
     if ~exist('fileaccess', 'var')
         fileaccess = 'w';
     end
     fileID = fopen(filepath, fileaccess);
     for object = objects
-        feats = features(object, :);
+        if size(groundTruths, 2) > 1
+            truth = groundTruths(object, :);
+        else
+            truth = groundTruths(object);
+        end
         imageFilepaths = objectFilepaths{object};
         for imageFilepath = imageFilepaths
             fprintf(fileID, '%s ', imageFilepath{1});
-            fprintf(fileID, '%f,', feats(1:end-1));
-            fprintf(fileID, '%f', feats(end));
+            if size(groundTruths, 2) > 1
+            	printf(fileID, '%f,', truth(1:end-1));
+                fprintf(fileID, '%f', truth(end));
+            else
+                fprintf(fileID, '%d', truth);
+            end
             fprintf(fileID, '\n');
         end
     end
