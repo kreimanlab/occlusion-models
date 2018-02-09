@@ -9,7 +9,7 @@ if ~exist('occludedWholeRatio', 'var')
 end
 imageSize = 227;
 kfolds = 5;
-categorySplit = 1; % leave-one-out
+validationSplit = 0.1;
 rng(0);
 
 %% directories
@@ -96,19 +96,18 @@ assert(numel(devOccludedFilepaths) / numel(devWholeFilepaths) == occludedWholeRa
 
 %% cross-validation
 fprintf('Splitting for cross-validation\n');
-crossfun = @(xtrainval, xtest) {xtrainval, xtest};
+crossfun = @(xtest, xtrainval) {xtest, xtrainval};
 crossValidations = crossval(crossfun, categories, 'kfold', kfolds);
 for kfold = 1:size(crossValidations, 1)
     fprintf('Kfold %d/%d\n', kfold, kfolds);
     % split
-    trainValCategories = crossValidations{kfold, 1};
-    testCategories = crossValidations{kfold, 2};
-    [trainInd, valInd, ~] = dividerand(numel(trainValCategories), ...
-        numel(trainValCategories) - categorySplit, categorySplit, 0);
-    trainCategories = trainValCategories(trainInd);
-    valCategories = trainValCategories(valInd);
-    trainObjects = objectsFromCategory(trainCategories, occlusionData);
-    valObjects = objectsFromCategory(valCategories, occlusionData);
+    trainValCategories = crossValidations{kfold, 2};
+    testCategories = crossValidations{kfold, 1};
+    trainValObjects = objectsFromCategory(trainValCategories, occlusionData);
+    [trainInd, valInd, ~] = dividerand(numel(trainValObjects), ...
+        1 - validationSplit, validationSplit, 0);
+    trainObjects = trainValObjects(trainInd);
+    valObjects = trainValObjects(valInd);
     testObjects = objectsFromCategory(testCategories, occlusionData);
     % write to files
     trainFilepath = [directory, sprintf('/train%d.txt', kfold)];
