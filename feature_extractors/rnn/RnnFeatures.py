@@ -214,10 +214,11 @@ class PlainModel(object):
 
 
 class KerasModel(PlainModel):
-    def __init__(self, model_constructor, preprocess_input, feature_manager=None):
+    def __init__(self, model_constructor, preprocess_input, feature_manager=None, last_layer=None):
         super(KerasModel, self).__init__()
         self.model_constructor = model_constructor
         self.preprocess_input = preprocess_input
+        self.model_last_layer = last_layer
 
     def get_feature_reshaper(self, mask_onset=None):
         reshape = super(KerasModel, self).get_feature_reshaper(mask_onset)
@@ -230,12 +231,20 @@ class KerasModel(PlainModel):
         return reshape_and_preprocess
 
     def __call__(self, shape, include_top=False):
-        return self.model_constructor(include_top=include_top, weights="imagenet", input_shape=shape)
+        model = self.model_constructor(include_top=True, weights="imagenet", input_shape=shape)
+        if self.model_last_layer is None:
+            return model
+        last_layer_index = [layer.name for layer in model.layers].index(self.model_last_layer)
+        for _ in range(len(model.layers) - last_layer_index - 1):
+            model.layers.pop()
+        model.outputs = [model.layers[-1].output]
+        model.layers[-1].outbound_nodes = []
+        return model
 
 
-class KerasTrainModel(KerasModel):
+class KerasFullModel(KerasModel):
     def __call__(self, shape, include_top=True):
-        return super(KerasTrainModel, self).__call__(shape, include_top=include_top)
+        return super(KerasFullModel, self).__call__(shape, include_top=include_top)
 
 
 class FeedForwardModel(PlainModel):
@@ -409,7 +418,7 @@ def run_rnn():
               'vgg16': functools.partial(KerasModel, VGG16, vgg16_preprocess),
               'vgg19': functools.partial(KerasModel, VGG19, vgg19_preprocess),
               'resnet50': functools.partial(KerasModel, ResNet50, resnet_preprocess),
-              'resnet50-train': functools.partial(KerasTrainModel, ResNet50, resnet_preprocess),
+              'resnet50-train': functools.partial(KerasFullModel, ResNet50, resnet_preprocess),
               'inceptionv3': functools.partial(KerasModel, InceptionV3, inception_preprocess),
               'rnn': RnnModel,
               'feed-forward': FeedForwardModel}
@@ -431,6 +440,8 @@ def run_rnn():
                         help='where to read the image ids from')
     parser.add_argument('--model', type=str, choices=models.keys(), default='rnn',
                         help='Model to train')
+    parser.add_argument('--model_layer', type=str, default=None,
+                        help='Layer to use for prediction')
     parser.add_argument('--num_epochs', type=int, default=10,
                         help='how many epochs to search for optimal weights')
     parser.add_argument('--num_timesteps', type=int, default=6,
@@ -482,11 +493,12 @@ def run_rnn():
         row_provider.set_num_images(occluded_features.shape[0])
     # model
     print('creating model...')
-    model_builder = models[args.model](feature_manager=feature_manager)
+    model_builder = models[args.model](feature_manager=feature_manager, last_layer=args.model_layer)
     train_reshaper = model_builder.get_feature_reshaper(None)
     test_reshaper = model_builder.get_feature_reshaper(args.mask_onset)
     model = ModelContainer(occluded_features, target_features, model_builder, row_provider,
                            reshape_features_training=train_reshaper, reshape_features_test=test_reshaper)
+    model.model.summary()
     # run
     print('running...')
     predicted_Y = model.cross_validate_prediction(train_epochs=num_epochs, max_timestep=num_timesteps,
@@ -496,11 +508,12 @@ def run_rnn():
         whole_features = model._predict(list(range(len(whole_features) if not TESTRUN else 3)),
                                         input_data=whole_features, timesteps=num_timesteps, rnn=args.rnn)[0]
     # save
-    file_suffix = '-%s_%s%s' % (args.model, args.cross_validation,
-                                '-mask%d' % args.mask_onset if args.mask_onset is not None else '')
+    file_suffix = '%s%s%s' % (args.model + ('-' + args.model_layer if args.model_layer is not None else ''),
+                               '_' + args.cross_validation if args.rnn else '',
+                               '-mask%d' % args.mask_onset if args.mask_onset is not None else '')
     filename, file_extension = os.path.splitext(args.target_features)
     save_basename = '%s%s%s' % (
-        os.path.basename(filename) if args.rnn else '', file_suffix, "-rnn" if args.rnn else "")
+        (os.path.basename(filename) + '-') if args.rnn else '', file_suffix, "-rnn" if args.rnn else "")
     save_dir_predicted = os.path.dirname(args.input_features)
     save_dir_whole = os.path.dirname(args.target_features)
     print('saving to %s...' % save_basename)
