@@ -21,7 +21,7 @@ class ImageDataGenerator(object):
     Requires Tensorflow >= version 1.12rc0
     """
 
-    def __init__(self, txt_file, mode, batch_size, shuffle=True,
+    def __init__(self, txt_file, mode, batch_size, num_classes=None, shuffle=True,
                  buffer_size=1000):
         """Create a new ImageDataGenerator.
 
@@ -45,10 +45,11 @@ class ImageDataGenerator(object):
             ValueError: If an invalid mode is passed.
 
         """
+        self.num_classes = num_classes
         self.txt_file = txt_file
 
         # retrieve the data from the text file
-        self._img_paths, self._labels = self._read_txt_file()
+        self._img_paths, self._labels = self._read_txt_file(has_classes=self.num_classes is not None)
 
         # number of samples in the dataset
         self.data_size = len(self._labels)
@@ -59,7 +60,8 @@ class ImageDataGenerator(object):
 
         # convert lists to TF tensor
         self.img_paths = convert_to_tensor(self._img_paths, dtype=dtypes.string)
-        self.labels = convert_to_tensor(self._labels, dtype=dtypes.float16)
+        self.labels = convert_to_tensor(self._labels,
+                                        dtype=dtypes.float16 if self.num_classes is None else dtypes.int32)
 
         # create dataset
         data = Dataset.from_tensor_slices((self.img_paths, self.labels))
@@ -67,11 +69,11 @@ class ImageDataGenerator(object):
         # distinguish between train/infer. when calling the parsing functions
         if mode == 'training':
             data = data.map(self._parse_function_train, num_threads=8,
-                      output_buffer_size=100*batch_size)
+                            output_buffer_size=100 * batch_size)
 
         elif mode == 'inference':
             data = data.map(self._parse_function_inference, num_threads=8,
-                      output_buffer_size=100*batch_size)
+                            output_buffer_size=100 * batch_size)
 
         else:
             raise ValueError("Invalid mode '%s'." % (mode))
@@ -85,7 +87,7 @@ class ImageDataGenerator(object):
 
         self.data = data
 
-    def _read_txt_file(self):
+    def _read_txt_file(self, has_classes=False):
         """Read the content of the text file and store it into lists."""
         img_paths = []
         labels = []
@@ -97,7 +99,10 @@ class ImageDataGenerator(object):
                 if not os.path.isabs(img_path):
                     img_path = os.path.join(os.path.dirname(self.txt_file), img_path)
                 img_paths.append(img_path)
-                labels.append(list(map(float, items[1].split(','))))
+                if has_classes:
+                    labels.append(int(items[1]))
+                else:
+                    labels.append(list(map(float, items[1].split(','))))
         return img_paths, labels
 
     def _shuffle_lists(self):
@@ -113,6 +118,10 @@ class ImageDataGenerator(object):
 
     def _parse_function_train(self, filename, label):
         """Input parser for samples of the training set."""
+        # convert label number into one-hot-encoding
+        if self.num_classes is not None:
+            label = tf.one_hot(label, self.num_classes)
+
         # load and preprocess the image
         img_string = tf.read_file(filename)
         img_decoded = tf.image.decode_png(img_string, channels=3)
@@ -129,6 +138,10 @@ class ImageDataGenerator(object):
 
     def _parse_function_inference(self, filename, label):
         """Input parser for samples of the validation/test set."""
+        # convert label number into one-hot-encoding
+        if self.num_classes is not None:
+            label = tf.one_hot(label, self.num_classes)
+
         # load and preprocess the image
         img_string = tf.read_file(filename)
         img_decoded = tf.image.decode_png(img_string, channels=3)

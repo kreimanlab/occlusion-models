@@ -38,6 +38,7 @@ def main():
     parser.add_argument('--prototype_run', action='store_true', default=False)
     parser.add_argument('--save_every', type=int, default=10)
     parser.add_argument('--display_step', type=int, default=20, help='how often to write the tf.summary to disk')
+    parser.add_argument('--loss', type=str, default='features')
     parser.add_argument('--learning_rate', type=float, default=0.01)
     parser.add_argument('--dropout_rate', type=float, default=0.5)
     parser.add_argument('--num_epochs', type=int, default=1000)
@@ -60,8 +61,9 @@ def main():
     predictions_file = os.path.join(data_path, "predictions{}.txt".format(args.kfold))
 
     # Network params
-    num_classes = 4096
-    train_layers = []  # train everything, not just ['fc8', 'fc7', 'fc6']
+    skip_layers = []  # train everything, not just ['fc8', 'fc7', 'fc6']
+    num_classes = 325 if args.loss == 'categorical' else None
+    logger.debug("Num classes: {}".format(num_classes))
 
     # Path for tf.summary.FileWriter and to store model checkpoints
     storage_path = os.path.join(os.path.dirname(__file__), "storage", "kfold{}".format(args.kfold))
@@ -81,14 +83,17 @@ def main():
         logger.info('Loading data')
         tr_data = ImageDataGenerator(train_file,
                                      mode='training',
+                                     num_classes=num_classes,
                                      batch_size=args.batch_size,
                                      shuffle=True)
         val_data = ImageDataGenerator(val_file,
                                       mode='inference',
+                                      num_classes=num_classes,
                                       batch_size=args.batch_size,
                                       shuffle=False)
         test_data = ImageDataGenerator(test_file,
                                        mode='inference',
+                                       num_classes=num_classes,
                                        batch_size=args.batch_size,
                                        shuffle=False)
 
@@ -103,23 +108,31 @@ def main():
     test_init_op = iterator.make_initializer(test_data.data)
 
     # TF placeholder for graph input and output
-    x = tf.placeholder(tf.float32, [args.batch_size, 227, 227, 3])
-    y = tf.placeholder(tf.float32, [args.batch_size, num_classes])
+    x = tf.placeholder(tf.float32, [args.batch_size, 227, 227, 3], name='x')
+    y = tf.placeholder(tf.float32, [args.batch_size, 4096 if args.loss == 'features' else num_classes], name='y')
     keep_prob = tf.placeholder(tf.float32)
 
     # Initialize model
     logger.info('Creating model')
-    model = AlexNet(x, keep_prob, train_layers, output_layer='fc7')
+    model = AlexNet(x, keep_prob, skip_layer=skip_layers + ['fc8'] if args.loss == 'categorical' else [],
+                    num_classes=num_classes)
 
     # Link variable to model output
-    predictions = model.output
+    class_output = model.fc8
+    features_output = model.fc7
 
     # List of trainable variables of the layers we want to train
-    var_list = [v for v in tf.trainable_variables() if not train_layers or v.name.split('/')[0] in train_layers]
+    var_list = [v for v in tf.trainable_variables() if not skip_layers or v.name.split('/')[0] in skip_layers]
 
     # Op for calculating the loss
     with tf.name_scope("loss"):
-        loss = tf.losses.mean_squared_error(predictions=predictions, labels=y)
+        if args.loss == 'features':
+            loss = tf.losses.mean_squared_error(predictions=features_output, labels=y)
+        elif args.loss == 'categorical':
+            loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=class_output, labels=y))
+            # loss = -tf.reduce_sum(y * tf.log(class_output + 1e-10))
+        else:
+            raise ValueError('Invalid value for loss provided: {}'.format(args.loss))
 
     # Train op
     with tf.name_scope("train"):
@@ -198,7 +211,6 @@ def main():
             sess.run(training_init_op)
 
             for step in range(train_batches_per_epoch):
-
                 # get next batch of data
                 img_batch, label_batch = sess.run(next_batch)
 
@@ -208,7 +220,7 @@ def main():
                                               keep_prob: args.dropout_rate})
 
                 # Generate summary with the current batch of data and write to file
-                if step % args.display_step == 0:
+                if True or step % args.display_step == 0:  # TODO: remove True
                     s = sess.run(merged_summary, feed_dict={x: img_batch,
                                                             y: label_batch,
                                                             keep_prob: 1.})
@@ -242,19 +254,19 @@ def main():
 
                 # Test the model
                 logger.info("{} Start test".format(datetime.now()))
-                test_predictions = np.empty((test_data.data_size, num_classes))
+                test_predictions = np.empty((test_data.data_size, num_classes or 4096))
                 sess.run(test_init_op)
                 for batch_num in range(test_batches_per_epoch):
                     img_batch, label_batch = sess.run(next_batch)
-                    test_predictions[batch_num * args.batch_size:(batch_num + 1) * args.batch_size, :] = \
-                        sess.run(predictions, feed_dict={x: img_batch, keep_prob: 1.})
+                    preds = sess.run(features_output, feed_dict={x: img_batch, keep_prob: 1.})
+                    test_predictions[batch_num * args.batch_size:(batch_num + 1) * args.batch_size, :] = preds
                 with open(predictions_file, 'w') as f:
                     for img_path, prediction in zip(test_data._img_paths, test_predictions):
                         f.write('{} {}\n'.format(img_path, ",".join([str(p) for p in prediction])))
                 logger.info("Wrote predictions to {}".format(predictions_file))
             elif epoch - best_val_epoch > args.patience:
                 logger.info("Validation loss has not decreased for {:d} epochs - stop (best epoch: {:d})".format(
-                    epoch - best_val_epoch, best_val_epoch))
+                    epoch + 1 - best_val_epoch, best_val_epoch))
                 break
 
 

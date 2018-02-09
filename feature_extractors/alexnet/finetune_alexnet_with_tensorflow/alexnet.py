@@ -28,8 +28,7 @@ import numpy as np
 class AlexNet(object):
     """Implementation of the AlexNet."""
 
-    def __init__(self, x, keep_prob, skip_layer=[], num_classes=1000,
-                 weights_path='DEFAULT', output_layer='fc8'):
+    def __init__(self, x, keep_prob, skip_layer=[], num_classes=1000, weights_path='DEFAULT'):
         """Create the graph of the AlexNet model.
 
         Args:
@@ -43,7 +42,7 @@ class AlexNet(object):
         """
         # Parse input arguments into class variables
         self.X = x
-        self.NUM_CLASSES = num_classes
+        self.NUM_CLASSES = num_classes or 1000
         self.KEEP_PROB = keep_prob
         self.SKIP_LAYER = skip_layer
 
@@ -53,9 +52,9 @@ class AlexNet(object):
             self.WEIGHTS_PATH = weights_path
 
         # Call the create function to build the computational graph of AlexNet
-        self.create(output_layer=output_layer)
+        self.create()
 
-    def create(self, output_layer='fc8'):
+    def create(self):
         """Create the network graph."""
         # 1st Layer: Conv (w ReLu) -> Lrn -> Pool
         conv1 = conv(self.X, 11, 11, 96, 4, 4, padding='VALID', name='conv1')
@@ -83,19 +82,11 @@ class AlexNet(object):
         dropout6 = dropout(fc6, self.KEEP_PROB)
 
         # 7th Layer: FC (w ReLu) -> Dropout
-        fc7 = fc(dropout6, 4096, 4096, name='fc7')
-        dropout7 = dropout(fc7, self.KEEP_PROB)
+        self.fc7 = fc(dropout6, 4096, 4096, name='fc7')
+        dropout7 = dropout(self.fc7, self.KEEP_PROB)
 
         # 8th Layer: FC and return unscaled activations
-        fc8 = fc(dropout7, 4096, self.NUM_CLASSES, relu=False, name='fc8')
-
-        # set output
-        if output_layer == 'fc8':
-            self.output = fc8
-        elif output_layer == 'fc7':
-            self.output = fc7
-        else:
-            raise NotImplementedError()
+        self.fc8 = fc(dropout7, 4096, self.NUM_CLASSES, relu=False, name='fc8')
 
     def load_initial_weights(self, session):
         """Load weights from file into network.
