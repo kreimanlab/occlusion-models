@@ -1,4 +1,4 @@
-function retrainAlexnet(predictOnly)
+function retrainAlexnet(predictOnly, predictSubdirectory)
 if ~exist('predictOnly', 'var') || ~predictOnly
     %% Data
     fprintf('Loading data\n');
@@ -50,48 +50,63 @@ if ~exist('predictOnly', 'var') || ~predictOnly
 end
 
 fprintf('Predicting\n');
-predictAll();
+if ~exist('predictSubdirectory', 'var')
+    predictSubdirectory = 'occluded';
+end
+predictAll(predictSubdirectory);
 end
 
-function predictAll()
+function predictAll(subDirectory)
+layer = 'relu7';
 crossValidations = 5;
-features = NaN(13000, 4096);
+features = NaN(0, 4096); % TODO: get rid of hard-coding, make dynamic
 for crossValidation = 1:crossValidations
     %% load
     loaded = load([fileparts(mfilename('fullpath')), '/alexnet-retrain-', num2str(crossValidation), '.mat']);
     fineTrainedNet = loaded.fineTrainedNet;
     testFiles = loaded.testFiles;
-    occludedImagePaths = cell(0);
+    imagePaths = cell(0);
     indices = NaN(0);
     for f = 1:numel(testFiles)
-        filePattern = strrep(testFiles{f}, '/images/', '/images/occluded/');
-        filePattern = strrep(filePattern, '\images\', '\images\occluded\');
-        filePattern = strrep(filePattern, '.png', '-*.png');
+        filePattern = strrep(testFiles{f}, '\', '/');
+        filePattern = strrep(filePattern, '/images/', ...
+            ['/images/', subDirectory, '/']);
+        if ~isempty(subDirectory)
+            filePattern = strrep(filePattern, '.png', '-*.png');
+        end
         paths = dir(filePattern);
         for p = 1:size(paths, 1)
             basename = paths(p).name;
             path = strcat(paths(p).folder, '/', basename);
-            occludedImagePaths(end + 1) = {path};
-            index = strsplit(basename, '-');
-            index = strsplit(index{end}, '.');
+            imagePaths(end + 1) = {path};
+            if ~isempty(subDirectory)
+                index = strsplit(basename, '-');
+                index = index{end};
+            else
+                index = basename;
+            end
+            index = strsplit(index, '.');
             indices(end + 1) = str2num(index{1});
         end
     end
+    assert(numel(imagePaths) > 0);
     %% create data store
-    testData = imageDatastore(occludedImagePaths);
-    assert(numel(testData.Files) == numel(occludedImagePaths));
-    for f = 1:numel(occludedImagePaths)
+    testData = imageDatastore(imagePaths);
+    assert(numel(testData.Files) == numel(imagePaths));
+    for f = 1:numel(imagePaths)
         assert(strcmp(strrep(testData.Files{f}, '\', '/'), ...
-            strrep(occludedImagePaths{f}, '\', '/'))); % verify ordering
+            strrep(imagePaths{f}, '\', '/'))); % verify ordering
     end
-    
     %% Predict
     fprintf('Predicting features %d/%d (%d images)\n', ...
         crossValidation, crossValidations, numel(testData.Files));
-    testFeatures = activations(fineTrainedNet, testData, 'fc7');
+    testFeatures = activations(fineTrainedNet, testData, layer);
     features(indices, :) = testFeatures;
 end
-save('data/features/data_occlusion_klab325v2/alexnet-retrain-fc7.mat', 'features', '-v7.3');
+saveFile = ['data/features/data_occlusion_klab325v2/alexnet-retrain-', ...
+    layer, '-', subDirectory, '.mat'];
+fprintf('Saving to %s\n', saveFile);
+save(saveFile, 'features', '-v7.3');
 end
 
 function merged = mergeImageDatastores(mergeInputs)
