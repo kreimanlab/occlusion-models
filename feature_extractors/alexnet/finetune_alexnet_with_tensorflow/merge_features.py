@@ -45,17 +45,17 @@ def extract(image_features, image_directory):
     return result
 
 
-def save(features, features_directory):
+def save(features, features_directory, filename='alexnet-finetune-relu7'):
     features_root_directory = os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', 'data', 'features')
-    target_filepath = os.path.join(features_root_directory, features_directory, 'alexnet-finetune-relu7.mat')
+    target_filepath = os.path.join(features_root_directory, features_directory, filename + '.mat')
     scipy.io.savemat(target_filepath, {'features': features})
     return target_filepath
 
 
-def process(image_features, save_directory):
+def process(image_features, save_directory, save_filename):
     image_features = sort(image_features)
     features = convert_matrix(image_features)
-    savepath = save(features, save_directory)
+    savepath = save(features, save_directory, filename=save_filename)
     logger.info('Saved {} to {}'.format(features.shape, savepath))
 
 
@@ -67,6 +67,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--log_level', type=str, default='INFO')
     parser.add_argument('--file_pattern', type=str, default='images/predictions*.txt')
+    parser.add_argument('--output_filename', type=str, default='alexnet-finetune_relu7')
     args = parser.parse_args()
     logging.basicConfig(stream=sys.stdout, level=logging.getLevelName(args.log_level))
     logger.info("Running with args %s", vars(args))
@@ -83,7 +84,7 @@ def main():
     for type in np.unique([get_last_directory(imagepath) for imagepath, _ in image_features]):
         assert type in type_dir_mapping
         features = extract(image_features, type)
-        process(features, type_dir_mapping[type])
+        process(features, save_directory=type_dir_mapping[type], save_filename=args.output_filename)
 
 
 if __name__ == '__main__':
