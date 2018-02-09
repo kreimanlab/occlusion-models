@@ -4,6 +4,11 @@ if ~exist('occludedWholeRatio', 'var')
     occludedWholeRatio = 1/1;
 end
 assert(numel(visibilityRange) == 2); % [min, max]
+if max(visibilityRange) <= 30
+    trainLessOcclusion = false;
+else
+    trainLessOcclusion = true;
+end
 imageSize = 227;
 kfolds = 5;
 validationSplit = 0.1;
@@ -33,14 +38,19 @@ wholeFeatures = wholeFeatures.features;
 objects = 1:size(wholeFeatures, 1);
 
 %% draw samples
-assert(occludedWholeRatio <= size(occlusionData, 1) / numel(objects));
+if trainLessOcclusion
+    trainData = lessOcclusionData;
+else
+    trainData = occlusionData;
+end
+assert(occludedWholeRatio <= size(trainData, 1) / numel(objects));
 wholeBin = objects;
-occludedBin = 1:size(occlusionData, 1);
-visibilities = 100 - occlusionData.black;
+occludedBin = 1:size(trainData, 1);
+visibilities = 100 - trainData.black;
 occludedBin = occludedBin(visibilities >= min(visibilityRange) & ...
     visibilities < max(visibilityRange));
-assert(~any(100 - occlusionData.black(occludedBin) < min(visibilityRange)) ...
-    && ~any(100 - occlusionData.black(occludedBin) >= max(visibilityRange)));
+assert(~any(100 - trainData.black(occludedBin) < min(visibilityRange)) ...
+    && ~any(100 - trainData.black(occludedBin) >= max(visibilityRange)));
 numOccludedDraws = round(occludedWholeRatio * numel(wholeBin));
 numWholeDraws = min(round(numOccludedDraws / occludedWholeRatio), numel(wholeBin));
 fprintf('Drawing %d occluded and %d whole images\n', numOccludedDraws, numWholeDraws);
@@ -77,7 +87,7 @@ for i = objects
         filepath = [occludedDirectory, sprintf('%d', row), '.png'];
         imwrite(occludedImage, filepath);
         allOccludedFilepaths = appendFilepath(filepath, allOccludedFilepaths, i);
-        if ismember(row, occludedSamples)
+        if ~trainLessOcclusion && ismember(row, occludedSamples)
             devOccludedFilepaths = appendFilepath(filepath, devOccludedFilepaths, i);
         end
     end
@@ -92,6 +102,9 @@ for i = objects
         filepath = [lessOccludedDirectory, sprintf('%d', row), '.png'];
         imwrite(occludedImage, filepath);
         allLessOccludedFilepaths = appendFilepath(filepath, allLessOccludedFilepaths, i);
+        if trainLessOcclusion && ismember(row, occludedSamples)
+            devOccludedFilepaths = appendFilepath(filepath, devOccludedFilepaths, i);
+        end
     end
 end
 assert(numel(devOccludedFilepaths) / numel(devWholeFilepaths) == occludedWholeRatio);
