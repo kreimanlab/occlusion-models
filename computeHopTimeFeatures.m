@@ -41,8 +41,8 @@ end
 sliceSize = 1000;
 numSlices = ceil(size(objectForRow, 1) / sliceSize);
 features = cell(numSlices, 1);
-%parfor sliceIter = 1:numSlices
-for sliceIter = 1:numSlices
+parfor sliceIter = 1:numSlices
+%for sliceIter = 1:numSlices
     dataStart = (sliceIter - 1) * sliceSize + 1;
     dataEnd = dataStart + sliceSize - 1;
     fprintf('%s occluded %d/%d (%d:%d)\n', featureExtractor.getName(), ...
@@ -53,8 +53,8 @@ for sliceIter = 1:numSlices
 end
 features = vertcat(features{:});
 % save
-%parfor timeIter = 1:numel(savesteps)
-for timeIter = 1:numel(savesteps)
+parfor timeIter = 1:numel(savesteps)
+%for timeIter = 1:numel(savesteps)
     timestep = savesteps(timeIter);
     fprintf('%s save occluded t=%d\n', featureExtractor.getName(), ...
         timestep);
