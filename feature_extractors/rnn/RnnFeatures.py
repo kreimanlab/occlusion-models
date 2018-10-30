@@ -284,7 +284,7 @@ class FeedForwardModel(PlainModel):
 
 
 class RnnModel(object):
-    def __init__(self, feature_manager):
+    def __init__(self, feature_manager, last_layer='ignore'):
         self.feature_manager = feature_manager
 
     def get_feature_reshaper(self, mask_onset=None):
@@ -296,6 +296,9 @@ class RnnModel(object):
             return reshape_features
 
     def __call__(self, num_features):
+        if isinstance(num_features, tuple):
+            assert len(num_features) == 1
+            num_features = num_features[0]
         model = Sequential()
         model.add(SimpleURNN(name='RNN',
                              units=num_features, input_shape=(None, num_features),

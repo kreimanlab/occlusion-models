@@ -87,7 +87,7 @@ class SimpleURNN(Recurrent):
         output = self.activation(x + K.dot(prev_output * B_U, self.U))
         return output, [output]
 
-    def get_constants(self, x):
+    def get_constants(self, x, training=None):
         constants = []
         if 0 < self.recurrent_dropout < 1:
             ones = K.ones_like(K.reshape(x[:, 0, 0], (-1, 1)))
